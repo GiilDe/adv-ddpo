@@ -5,7 +5,7 @@ import random
 import inflect
 
 IE = inflect.engine()
-ASSETS_PATH = resources.files("ddpo_pytorch.assets")
+ASSETS_PATH = "ddpo_pytorch/assets"
 
 
 @functools.cache
@@ -15,7 +15,7 @@ def _load_lines(path):
     `ddpo_pytorch/assets` directory for a file named `path`.
     """
     if not os.path.exists(path):
-        newpath = ASSETS_PATH.joinpath(path)
+        newpath = os.path.join(ASSETS_PATH, path)
     if not os.path.exists(newpath):
         raise FileNotFoundError(f"Could not find {path} or ddpo_pytorch.assets/{path}")
     path = newpath
