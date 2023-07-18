@@ -9,6 +9,7 @@ import torchvision
 
 def targeted_mnist_classifier():
     target = 3
+    images_diff_weight = 0.1
     mnist_classifier = MnistClassifier()
     mnist_classifier.load_state_dict(torch.load("model.pth"))
     mnist_classifier.eval()
@@ -20,17 +21,13 @@ def targeted_mnist_classifier():
         ]
     )
 
-    def _fn(created_images, original_images, metadata):
-        if isinstance(created_images, torch.Tensor):
-            created_images = (created_images * 255).round().clamp(0, 255).to(torch.uint8).cpu().numpy()
-            created_images = created_images.transpose(0, 2, 3, 1)  # NCHW -> NHWC
-            created_images = [Image.fromarray(image) for image in created_images]
-
-        created_images = [mnist_pil_to_tensor(image) for image in created_images]
-        created_images = torch.stack(created_images)
-        pred = mnist_classifier(created_images)
-        target_scores = pred[:, target]
-        return target_scores, {}
+    def _fn(ft_images, original_images, metadata):
+        with torch.no_grad():
+            ft_images = [mnist_pil_to_tensor(image) for image in ft_images]
+            ft_images = torch.stack(ft_images)
+            pred = mnist_classifier(ft_images)
+            target_scores = pred[:, target]
+            return target_scores, {}
 
     return _fn
 

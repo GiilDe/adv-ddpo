@@ -30,7 +30,7 @@ mnist_pil_to_tensor = torchvision.transforms.Compose(
     ]
 )
 
-data = PIL.Image.open("mnist-img.png")
+data = PIL.Image.open("image_after_inv.png")
 
 data = mnist_pil_to_tensor(data)
 
@@ -40,18 +40,18 @@ num_steps = 200
 model_id = "nabdan/mnist_20_epoch"
 # model_id = "google/ddpm-cifar10-32"
 
-pipeline = DDIMPipeline.from_pretrained(model_id)
-pipeline.scheduler = DDIMScheduler.from_config(pipeline.scheduler.config)
-pipeline.scheduler.set_timesteps(num_steps)
+# pipeline = DDIMPipeline.from_pretrained(model_id)
+# pipeline.scheduler = DDIMScheduler.from_config(pipeline.scheduler.config)
+# pipeline.scheduler.set_timesteps(num_steps)
 
-scheduler_inv = DDIMInverseScheduler.from_config(pipeline.scheduler.config)
-pipeline_inv = DDIMPipelineGivenImage.from_pretrained(model_id, scheduler=scheduler_inv)
-pipeline_inv.scheduler = scheduler_inv
-pipeline_inv.scheduler.set_timesteps(num_steps)
+# scheduler_inv = DDIMInverseScheduler.from_config(pipeline.scheduler.config)
+# pipeline_inv = DDIMPipelineGivenImage.from_pretrained(model_id, scheduler=scheduler_inv)
+# pipeline_inv.scheduler = scheduler_inv
+# pipeline_inv.scheduler.set_timesteps(num_steps)
 
 
-pipeline_after_inv = DDIMPipelineGivenImage.from_pretrained(model_id)
-pipeline_after_inv.scheduler.set_timesteps(num_steps)
+# pipeline_after_inv = DDIMPipelineGivenImage.from_pretrained(model_id)
+# pipeline_after_inv.scheduler.set_timesteps(num_steps)
 
 # # def process_image_mnist(image):
 # #   image = np.array(image).astype(np.float32) / 255.0
@@ -72,9 +72,16 @@ pipeline_after_inv.scheduler.set_timesteps(num_steps)
 # # image.save("image.png")
 
 # # image_tensor = process_image_mnist(image)
-image_inv_tensor = pipeline_inv(image_=data, num_inference_steps=2, post_process=False).images[0]
-image_inv_tensor = image_inv_tensor.unsqueeze(0)
-torch.save(image_inv_tensor, "noize.pt")
-image_after_inv = pipeline_after_inv(image_=image_inv_tensor, num_inference_steps=50).images[0]
-image_after_inv.save("image_after_inv.png")
+# image_inv_tensor = pipeline_inv(image_=data, num_inference_steps=2, post_process=False).images[0]
+# image_inv_tensor = image_inv_tensor.unsqueeze(0)
+# torch.save(image_inv_tensor, "noize.pt")
+# image_after_inv = pipeline_after_inv(image_=image_inv_tensor, num_inference_steps=50).images[0]
+# image_after_inv.save("image_after_inv.png")
 
+mnist_classifier = MnistClassifier()
+mnist_classifier.load_state_dict(torch.load("model.pth"))
+mnist_classifier.eval()
+
+pred = mnist_classifier(data)
+print(pred)
+print(torch.argmax(pred))

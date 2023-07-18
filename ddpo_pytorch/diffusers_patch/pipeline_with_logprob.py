@@ -20,8 +20,6 @@ from .ddim_with_logprob import ddim_step_with_logprob
 @torch.no_grad()
 def pipeline_with_logprob(
     self: DDIMPipelineGivenImage,
-    height: Optional[int] = None,
-    width: Optional[int] = None,
     num_inference_steps: int = 50,
     guidance_scale: float = 7.5,
     num_images_per_prompt: Optional[int] = 1,
@@ -89,11 +87,8 @@ def pipeline_with_logprob(
         list of `bool`s denoting whether the corresponding generated image likely represents "not-safe-for-work"
         (nsfw) content, according to the `safety_checker`.
     """
-    # 0. Default height and width to unet
-    height = height or self.unet.config.sample_size * self.vae_scale_factor
-    width = width or self.unet.config.sample_size * self.vae_scale_factor
 
-    device = self._execution_device
+    device = self.device
     # here `guidance_scale` is defined analog to the guidance weight `w` of equation (2)
     # of the Imagen paper: https://arxiv.org/pdf/2205.11487.pdf . `guidance_scale = 1`
     # corresponds to doing no classifier free guidance.
@@ -102,9 +97,6 @@ def pipeline_with_logprob(
     # 4. Prepare timesteps
     self.scheduler.set_timesteps(num_inference_steps, device=device)
     timesteps = self.scheduler.timesteps
-
-    # 6. Prepare extra step kwargs. TODO: Logic should ideally just be moved out of the pipeline
-    extra_step_kwargs = self.prepare_extra_step_kwargs(generator, eta)
 
     # 7. Denoising loop
     num_warmup_steps = len(timesteps) - num_inference_steps * self.scheduler.order
@@ -133,7 +125,7 @@ def pipeline_with_logprob(
                 noise_pred = rescale_noise_cfg(noise_pred, noise_pred_text, guidance_rescale=guidance_rescale)
 
             # compute the previous noisy sample x_t -> x_t-1
-            latents, log_prob = ddim_step_with_logprob(self.scheduler, noise_pred, t, latents, **extra_step_kwargs)
+            latents, log_prob = ddim_step_with_logprob(self.scheduler, noise_pred, t, latents, generator=generator, eta=eta)
 
             all_latents.append(latents)
             all_log_probs.append(log_prob)

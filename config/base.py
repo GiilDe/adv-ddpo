@@ -6,7 +6,7 @@ def get_config():
 
     ###### General ######
     # run name for wandb logging and checkpoint saving -- if not provided, will be auto-generated based on the datetime.
-    config.run_name = ""
+    config.run_name = "overfit_exp"
     # random seed for reproducibility.
     config.seed = 42
     # top-level logging directory for checkpoint saving.
@@ -35,7 +35,7 @@ def get_config():
     ###### Pretrained Model ######
     config.pretrained = pretrained = ml_collections.ConfigDict()
     # base model to load. either a path to a local directory, or a model name from the HuggingFace model hub.
-    pretrained.model = "runwayml/stable-diffusion-v1-5"
+    pretrained.model = "nabdan/mnist_20_epoch"
     # revision of the model to load.
     pretrained.revision = "main"
 
@@ -80,7 +80,7 @@ def get_config():
     train.num_inner_epochs = 1
     # whether or not to use classifier-free guidance during training. if enabled, the same guidance scale used during
     # sampling will be used during training.
-    train.cfg = True
+    train.cfg = False
     # clip advantages to the range [-adv_clip_max, adv_clip_max].
     train.adv_clip_max = 5
     # the PPO clip range.
@@ -88,12 +88,6 @@ def get_config():
     # the fraction of timesteps to train on. if set to less than 1.0, the model will be trained on a subset of the
     # timesteps for each sample. this will speed up training but reduce the accuracy of policy gradient estimates.
     train.timestep_fraction = 1.0
-
-    ###### Prompt Function ######
-    # prompt function to use. see `prompts.py` for available prompt functions.
-    config.prompt_fn = "imagenet_animals"
-    # kwargs to pass to the prompt function.
-    config.prompt_fn_kwargs = {}
 
     ###### Reward Function ######
     # reward function to use. see `rewards.py` for available reward functions.
