@@ -3,6 +3,37 @@ import io
 import numpy as np
 import torch
 
+from models import MnistClassifier
+import torchvision
+
+
+def targeted_mnist_classifier():
+    target = 3
+    mnist_classifier = MnistClassifier()
+    mnist_classifier.load_state_dict(torch.load("model.pth"))
+    mnist_classifier.eval()
+
+    mnist_pil_to_tensor = torchvision.transforms.Compose(
+        [
+            torchvision.transforms.ToTensor(),
+            torchvision.transforms.Normalize((0.1307,), (0.3081,)),
+        ]
+    )
+
+    def _fn(created_images, original_images, metadata):
+        if isinstance(created_images, torch.Tensor):
+            created_images = (created_images * 255).round().clamp(0, 255).to(torch.uint8).cpu().numpy()
+            created_images = created_images.transpose(0, 2, 3, 1)  # NCHW -> NHWC
+            created_images = [Image.fromarray(image) for image in created_images]
+
+        created_images = [mnist_pil_to_tensor(image) for image in created_images]
+        created_images = torch.stack(created_images)
+        pred = mnist_classifier(created_images)
+        target_scores = pred[:, target]
+        return target_scores, {}
+
+    return _fn
+
 
 def jpeg_incompressibility():
     def _fn(images, prompts, metadata):
@@ -55,7 +86,9 @@ def llava_strict_satisfaction():
     batch_size = 4
     url = "http://127.0.0.1:8085"
     sess = requests.Session()
-    retries = Retry(total=1000, backoff_factor=1, status_forcelist=[500], allowed_methods=False)
+    retries = Retry(
+        total=1000, backoff_factor=1, status_forcelist=[500], allowed_methods=False
+    )
     sess.mount("http://", HTTPAdapter(max_retries=retries))
 
     def _fn(images, prompts, metadata):
@@ -121,7 +154,9 @@ def llava_bertscore():
     batch_size = 16
     url = "http://127.0.0.1:8085"
     sess = requests.Session()
-    retries = Retry(total=1000, backoff_factor=1, status_forcelist=[500], allowed_methods=False)
+    retries = Retry(
+        total=1000, backoff_factor=1, status_forcelist=[500], allowed_methods=False
+    )
     sess.mount("http://", HTTPAdapter(max_retries=retries))
 
     def _fn(images, prompts, metadata):
@@ -152,8 +187,11 @@ def llava_bertscore():
             # format for LLaVA server
             data = {
                 "images": jpeg_images,
-                "queries": [["Answer concisely: what is going on in this image?"]] * len(image_batch),
-                "answers": [[f"The image contains {prompt}"] for prompt in prompt_batch],
+                "queries": [["Answer concisely: what is going on in this image?"]]
+                * len(image_batch),
+                "answers": [
+                    [f"The image contains {prompt}"] for prompt in prompt_batch
+                ],
             }
             data_bytes = pickle.dumps(data)
 
@@ -167,7 +205,9 @@ def llava_bertscore():
             all_scores += scores.tolist()
 
             # save the precision and f1 scores for analysis
-            all_info["precision"] += np.array(response_data["precision"]).squeeze().tolist()
+            all_info["precision"] += (
+                np.array(response_data["precision"]).squeeze().tolist()
+            )
             all_info["f1"] += np.array(response_data["f1"]).squeeze().tolist()
             all_info["outputs"] += np.array(response_data["outputs"]).squeeze().tolist()
 

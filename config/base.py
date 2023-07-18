@@ -30,7 +30,7 @@ def get_config():
     # attention layers of the UNet. with LoRA, fp16, and a batch size of 1, finetuning Stable Diffusion should take
     # about 10GB of GPU memory. beware that if LoRA is disabled, training will take a lot of memory and saved checkpoint
     # files will also be large.
-    config.use_lora = True
+    config.use_lora = False
 
     ###### Pretrained Model ######
     config.pretrained = pretrained = ml_collections.ConfigDict()
@@ -47,7 +47,7 @@ def get_config():
     # being fully deterministic and 1.0 being equivalent to the DDPM sampler.
     sample.eta = 1.0
     # classifier-free guidance weight. 1.0 is no guidance.
-    sample.guidance_scale = 5.0
+    sample.guidance_scale = 1.0
     # batch size (per GPU!) to use for sampling.
     sample.batch_size = 1
     # number of batches to sample per epoch. the total number of samples per epoch is `num_batches_per_epoch *
@@ -97,7 +97,7 @@ def get_config():
 
     ###### Reward Function ######
     # reward function to use. see `rewards.py` for available reward functions.
-    config.reward_fn = "jpeg_compressibility"
+    config.reward_fn = "targeted_mnist_classifier"
 
     ###### Per-Prompt Stat Tracking ######
     # when enabled, the model will track the mean and std of reward on a per-prompt basis and use that to compute

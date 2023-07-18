@@ -1,11 +1,10 @@
 
 from diffusers import DiffusionPipeline, ImagePipelineOutput, DDIMScheduler
-from typing import Optional, Tuple, Union
+from typing import List, Optional, Tuple, Union
 import torch
-import torchvision
 import torch.nn as nn
 import torch.nn.functional as F
-import torch.optim as optim
+from diffusers.utils import randn_tensor
 
 class DDIMPipelineGivenImage(DiffusionPipeline):
     r"""
@@ -31,12 +30,14 @@ class DDIMPipelineGivenImage(DiffusionPipeline):
     def __call__(
         self,
         batch_size: int = 1,
+        generator: Optional[Union[torch.Generator, List[torch.Generator]]] = None,
         image_=None,
         eta: float = 0.0,
         num_inference_steps: int = 50,
         use_clipped_model_output: Optional[bool] = None,
         output_type: Optional[str] = "pil",
         return_dict: bool = True,
+        post_process: bool = True,
     ) -> Union[ImagePipelineOutput, Tuple]:
         r"""
         Args:
@@ -64,10 +65,21 @@ class DDIMPipelineGivenImage(DiffusionPipeline):
             True, otherwise a `tuple. When returning a tuple, the first element is a list with the generated images.
         """
 
+        # Sample gaussian noise to begin loop
+        if isinstance(self.unet.config.sample_size, int):
+            image_shape = (
+                batch_size,
+                self.unet.config.in_channels,
+                self.unet.config.sample_size,
+                self.unet.config.sample_size,
+            )
+        else:
+            image_shape = (batch_size, self.unet.config.in_channels, *self.unet.config.sample_size)
+
         # set step values
         self.scheduler.set_timesteps(num_inference_steps)
 
-        image = image_
+        image = image_ if image_ is not None else randn_tensor(image_shape, generator=generator, device=self.device, dtype=self.unet.dtype)
 
         for t in self.progress_bar(self.scheduler.timesteps):
             # 1. predict noise model_output
@@ -80,13 +92,14 @@ class DDIMPipelineGivenImage(DiffusionPipeline):
                 model_output, t, image, eta=eta, use_clipped_model_output=use_clipped_model_output
             ).prev_sample
 
-        image = (image / 2 + 0.5).clamp(0, 1)
-        image = image.cpu().permute(0, 2, 3, 1).numpy()
-        if output_type == "pil":
-            image = self.numpy_to_pil(image)
+        if post_process:
+            image = (image / 2 + 0.5).clamp(0, 1)
+            image = image.cpu().permute(0, 2, 3, 1).numpy()
+            if output_type == "pil":
+                image = self.numpy_to_pil(image)
 
-        if not return_dict:
-            return (image,)
+            if not return_dict:
+                return (image,)
 
         return ImagePipelineOutput(images=image)
 
