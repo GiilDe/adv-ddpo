@@ -109,9 +109,15 @@ def main(_):
         dynamic_ncols=True,
     )
     # switch to DDIM scheduler
+    # pipeline = StableDiffusionPipeline.from_pretrained("runwayml/stable-diffusion-v1-5", revision=config.pretrained.revision)
+    pipeline_ft.scheduler.config["steps_offset"] = 1
     pipeline_ft.scheduler = DDIMScheduler.from_config(pipeline_ft.scheduler.config)
-    pipeline_orig.scheduler = DDIMScheduler.from_config(pipeline_orig.scheduler.config)
+    pipeline_orig.scheduler = DDIMScheduler.from_config(pipeline_ft.scheduler.config)
 
+    # del pipeline     
+
+    # pipeline_ft.scheduler.set_timesteps(1000)
+    # pipeline_orig.scheduler.set_timesteps(1000)
     # For mixed precision training we cast all non-trainable weigths (vae, non-lora text_encoder and non-lora unet) to half-precision
     # as these weights are only used for inference, keeping weights in full precision is not required.
     inference_dtype = torch.float32
@@ -189,8 +195,8 @@ def main(_):
             raise ValueError(f"Unknown model type {type(models[0])}")
         models.pop()  # ensures that accelerate doesn't try to handle loading of the model
 
-    accelerator.register_save_state_pre_hook(save_model_hook)
-    accelerator.register_load_state_pre_hook(load_model_hook)
+    # accelerator.register_save_state_pre_hook(save_model_hook)
+    # accelerator.register_load_state_pre_hook(load_model_hook)
 
     # Enable TF32 for faster training on Ampere GPUs,
     # cf https://pytorch.org/docs/stable/notes/cuda.html#tensorfloat-32-tf32-on-ampere-devices
@@ -216,6 +222,11 @@ def main(_):
         betas=(config.train.adam_beta1, config.train.adam_beta2),
         weight_decay=config.train.adam_weight_decay,
         eps=config.train.adam_epsilon,
+    )
+
+    stat_tracker = PerPromptStatTracker(
+        config.per_prompt_stat_tracking.buffer_size,
+        config.per_prompt_stat_tracking.min_count,
     )
 
     # prepare reward fn
@@ -274,7 +285,7 @@ def main(_):
 
     global_step = 0
     noize = torch.load("noize.pt")
-    image_orig = pipeline_orig(image_=noize).images[0]
+    image_orig = [pipeline_orig(image_=noize).images[0]]
     for epoch in range(first_epoch, config.num_epochs):
         #################### SAMPLING ####################
         pipeline_ft.unet.eval()
@@ -364,7 +375,9 @@ def main(_):
 
         # advantages = (rewards - rewards.mean()) / (rewards.std() + 1e-8)
 
-        advantages = rewards
+        advantages = stat_tracker.update(rewards)
+
+        # advantages = rewards
 
         # ungather advantages; we only need to keep the entries corresponding to the samples on this process
         samples["advantages"] = (
@@ -373,7 +386,7 @@ def main(_):
             .to(accelerator.device)
         )
 
-        del samples["rewards"]
+        # del samples["rewards"]
 
         total_batch_size, num_timesteps = samples["timesteps"].shape
         assert (

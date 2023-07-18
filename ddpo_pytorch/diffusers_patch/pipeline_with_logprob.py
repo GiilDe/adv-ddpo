@@ -5,7 +5,7 @@
 # - It returns all the intermediate latents of the denoising process as well as the log probs of each denoising step.
 
 from typing import Any, Callable, Dict, List, Optional, Union
-
+from diffusers.utils import randn_tensor
 import torch
 
 from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion import (
@@ -100,7 +100,7 @@ def pipeline_with_logprob(
 
     # 7. Denoising loop
     num_warmup_steps = len(timesteps) - num_inference_steps * self.scheduler.order
-    latents = noize
+    latents = noize # if noize else randn_tensor(image_shape, generator=generator, device=self.device, dtype=self.unet.dtype)
     all_latents = [latents]
     all_log_probs = []
     with self.progress_bar(total=num_inference_steps) as progress_bar:
