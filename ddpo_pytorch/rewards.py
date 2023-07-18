@@ -31,9 +31,10 @@ def targeted_mnist_classifier():
             pred = mnist_classifier(ft_images_)
             target_scores = pred[:, target]
 
-            ft_images_ = torch.stack([to_tensor(image) for image in ft_images])
-            original_images_ = torch.stack([to_tensor(image) for image in original_images])
-            images_diff = torch.norm(ft_images_ - original_images_)
-            return target_scores - images_diff_weight*images_diff, {}
+            #ft_images_ = torch.stack([to_tensor(image) for image in ft_images])
+            #original_images_ = torch.stack([to_tensor(image) for image in original_images])
+            #images_diff = torch.norm(ft_images_ - original_images_)
+            #return target_scores - images_diff_weight*images_diff, {}
+            return target_scores, {}
 
     return _fn
