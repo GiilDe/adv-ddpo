@@ -255,6 +255,16 @@ def main(_):
         * config.train.gradient_accumulation_steps
     )
 
+    if isinstance(pipeline_ft.unet.config.sample_size, int):
+        image_shape = (
+            config.sample.batch_size,
+            pipeline_ft.unet.config.in_channels,
+            pipeline_ft.unet.config.sample_size,
+            pipeline_ft.unet.config.sample_size,
+        )
+    else:
+        image_shape = (config.sample.batch_size, pipeline_ft.unet.config.in_channels, *pipeline_ft.unet.config.sample_size)
+
     logger.info("***** Running training *****")
     logger.info(f"  Num Epochs = {config.num_epochs}")
     logger.info(f"  Sample batch size per device = {config.sample.batch_size}")
@@ -299,12 +309,13 @@ def main(_):
             # sample
             with autocast():
                 images, latents, log_probs = pipeline_with_logprob(
-                    pipeline_ft,
+                    self=pipeline_ft,
                     noize=noize,
                     num_inference_steps=config.sample.num_steps,
                     guidance_scale=config.sample.guidance_scale,
                     eta=config.sample.eta,
                     output_type="pil",
+                    image_shape=image_shape,
                 )
 
             latents = torch.stack(

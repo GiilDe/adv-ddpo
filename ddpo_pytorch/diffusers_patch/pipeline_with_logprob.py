@@ -4,7 +4,7 @@
 #   `ddim` scheduler.
 # - It returns all the intermediate latents of the denoising process as well as the log probs of each denoising step.
 
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 from diffusers.utils import randn_tensor
 import torch
 
@@ -22,7 +22,6 @@ def pipeline_with_logprob(
     self: DDIMPipelineGivenImage,
     num_inference_steps: int = 50,
     guidance_scale: float = 7.5,
-    num_images_per_prompt: Optional[int] = 1,
     eta: float = 0.0,
     generator: Optional[Union[torch.Generator, List[torch.Generator]]] = None,
     noize: Optional[torch.FloatTensor] = None,
@@ -31,6 +30,7 @@ def pipeline_with_logprob(
     callback: Optional[Callable[[int, int, torch.FloatTensor], None]] = None,
     callback_steps: int = 1,
     guidance_rescale: float = 0.0,
+    image_shape: Optional[Tuple[int, int, int, int]] = None,
 ):
     r"""
     Function invoked when calling the pipeline for generation.
@@ -100,7 +100,7 @@ def pipeline_with_logprob(
 
     # 7. Denoising loop
     num_warmup_steps = len(timesteps) - num_inference_steps * self.scheduler.order
-    latents = noize # if noize else randn_tensor(image_shape, generator=generator, device=self.device, dtype=self.unet.dtype)
+    latents = noize if noize else randn_tensor(image_shape, generator=generator, device=self.device, dtype=self.unet.dtype)
     all_latents = [latents]
     all_log_probs = []
     with self.progress_bar(total=num_inference_steps) as progress_bar:
