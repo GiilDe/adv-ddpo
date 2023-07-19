@@ -62,7 +62,7 @@ def untargeted_mnist_classifier():
             
             ft_scores = mnist_classifier(ft_images_)
 
-            ft_labels_scores = ft_scores[:, labels]
+            ft_labels_scores = torch.gather(ft_scores, 1, labels.unsqueeze(1))
 
             #ft_images_ = torch.stack([to_tensor(image) for image in ft_images])
             #original_images_ = torch.stack([to_tensor(image) for image in original_images])
