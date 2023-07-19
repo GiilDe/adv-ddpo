@@ -318,7 +318,7 @@ def main(_):
                 )
 
             noize = latents[0]
-            image_orig = pipeline_orig(image_=noize).images
+            images_orig = pipeline_orig(image_=noize).images
 
             latents = torch.stack(
                 latents, dim=1
@@ -329,7 +329,7 @@ def main(_):
             )  # (batch_size, num_steps)
 
             # compute rewards asynchronously
-            rewards = executor.submit(reward_fn, images, image_orig, None)
+            rewards = executor.submit(reward_fn, images, images_orig, None)
             # yield to to make sure reward computation starts
             time.sleep(0)
 
@@ -378,9 +378,19 @@ def main(_):
         # this is a hack to force wandb to log the images as JPEGs instead of PNGs
         accelerator.log(
             {
-                "images": [
+                "pertrubed images": [
                     wandb.Image(image, caption=f"{reward:.2f}")
                     for image, reward in zip(images, rewards)
+                ],
+            },
+            step=global_step,
+        )
+
+        accelerator.log(
+            {
+                "original images": [
+                    wandb.Image(image, caption=f"{reward:.2f}")
+                    for image, reward in zip(images_orig, rewards)
                 ],
             },
             step=global_step,
