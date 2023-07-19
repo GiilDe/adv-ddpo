@@ -294,8 +294,7 @@ def main(_):
         first_epoch = 0
 
     global_step = 0
-    noize = torch.load("noize.pt")
-    image_orig = [pipeline_orig(image_=noize).images[0]]
+    # noize = torch.load("noize.pt")
     for epoch in range(first_epoch, config.num_epochs):
         #################### SAMPLING ####################
         pipeline_ft.unet.eval()
@@ -310,13 +309,16 @@ def main(_):
             with autocast():
                 images, latents, log_probs = pipeline_with_logprob(
                     self=pipeline_ft,
-                    noize=noize,
+                    noize=None,
                     num_inference_steps=config.sample.num_steps,
                     guidance_scale=config.sample.guidance_scale,
                     eta=config.sample.eta,
                     output_type="pil",
                     image_shape=image_shape,
                 )
+
+            noize = latents[0]
+            image_orig = pipeline_orig(image_=noize).images
 
             latents = torch.stack(
                 latents, dim=1
