@@ -110,7 +110,7 @@ def main(_):
     )
     # switch to DDIM scheduler
     # pipeline = StableDiffusionPipeline.from_pretrained("runwayml/stable-diffusion-v1-5", revision=config.pretrained.revision)
-    pipeline_ft.scheduler.config["steps_offset"] = 1
+    pipeline_ft.scheduler.config["steps_offset"] = 1 # without adding this line there's a bug! the timestep = 0 returns logprob = nan which crashes the training
     pipeline_ft.scheduler = DDIMScheduler.from_config(pipeline_ft.scheduler.config)
     pipeline_orig.scheduler = DDIMScheduler.from_config(pipeline_ft.scheduler.config)
 
@@ -386,7 +386,7 @@ def main(_):
             .to(accelerator.device)
         )
 
-        # del samples["rewards"]
+        del samples["rewards"]
 
         total_batch_size, num_timesteps = samples["timesteps"].shape
         assert (
