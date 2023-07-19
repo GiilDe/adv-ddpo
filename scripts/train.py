@@ -96,6 +96,7 @@ def main(_):
     pipeline_orig = DDIMPipelineGivenImage.from_pretrained(
         config.pretrained.model, revision=config.pretrained.revision
     )
+    pipeline_orig = pipeline_orig.to(accelerator.device)
     # freeze parameters of models to save more memory
     pipeline_ft.unet.requires_grad_(not config.use_lora)
     # disable safety checker
@@ -348,6 +349,8 @@ def main(_):
                 }
             )
 
+        images_diffs = []
+        accuracy = []
         # wait for all rewards to be computed
         for sample in tqdm(
             samples,
@@ -356,9 +359,12 @@ def main(_):
             position=0,
         ):
             rewards, reward_metadata = sample["rewards"].result()
-            # accelerator.print(reward_metadata)
+            images_diffs.append(reward_metadata["images_diff"])
+            accuracy.append(reward_metadata["accuracy"])
             sample["rewards"] = torch.as_tensor(rewards, device=accelerator.device)
 
+        images_diffs = torch.stack(images_diffs).mean()
+        accuracy = torch.stack(accuracy).mean()
         # collate samples into dict where each entry has shape (num_batches_per_epoch * sample.batch_size, ...)
         samples = {k: torch.cat([s[k] for s in samples]) for k in samples[0].keys()}
 
@@ -372,6 +378,8 @@ def main(_):
                 "epoch": epoch,
                 "reward_mean": rewards.mean(),
                 "reward_std": rewards.std(),
+                "images_diffs_mean": images_diffs,
+                "accuracy_mean": accuracy,
             },
             step=global_step,
         )
