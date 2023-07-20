@@ -93,6 +93,7 @@ def get_config():
     # reward function to use. see `rewards.py` for available reward functions.
     config.reward_fn = "untargeted_l_inf_img_diff"
     config.images_diff_weight = 1.2
+    config.images_diff_threshold = 0.3
 
     ###### Per-Prompt Stat Tracking ######
     # when enabled, the model will track the mean and std of reward on a per-prompt basis and use that to compute

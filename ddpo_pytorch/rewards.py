@@ -42,7 +42,13 @@ def gen_reward_fn(norm, config):
             accuracy = (ft_labels == labels).float().mean()
 
             images_diff = norm(ft_images, original_images)
-            return (1 - ft_labels_scores) - config.images_diff_weight * images_diff, {
+            images_penalty = (
+                max(0, images_diff - config.images_diff_threshold)
+                * config.images_diff_weight
+                if config.images_diff_threshold != 0
+                else images_diff * config.images_diff_weight
+            )
+            return (1 - ft_labels_scores) - images_penalty, {
                 "ft_labels_scores": ft_labels_scores,
                 "images_diff": images_diff,
                 "accuracy": accuracy,
@@ -71,7 +77,7 @@ def l_inf_norm_diff(ft_images, original_images):
     ft_images_ = torch.stack([to_tensor(image) for image in ft_images])
 
     images_diff = torch.linalg.vector_norm(
-        ft_images_ - original_images_, ord=float('inf'), dim=(1, 2, 3)
+        ft_images_ - original_images_, ord=float("inf"), dim=(1, 2, 3)
     )
     return images_diff
 
