@@ -43,7 +43,7 @@ def gen_reward_fn(norm, config):
 
             images_diff = norm(ft_images, original_images)
             images_penalty = (
-                max(0, images_diff - config.images_diff_threshold)
+                torch.maximum(torch.zeros_like(images_diff), images_diff - config.images_diff_threshold)
                 * config.images_diff_weight
                 if config.images_diff_threshold != 0
                 else images_diff * config.images_diff_weight
