@@ -308,7 +308,7 @@ def main(_):
         ):
             # sample
             with autocast():
-                images, latents, log_probs = pipeline_with_logprob(
+                images_adv, latents, log_probs = pipeline_with_logprob(
                     self=pipeline_ft,
                     noize=None,
                     num_inference_steps=config.sample.num_steps,
@@ -330,7 +330,7 @@ def main(_):
             )  # (batch_size, num_steps)
 
             # compute rewards asynchronously
-            rewards = executor.submit(reward_fn, images, images_orig, None)
+            rewards = executor.submit(reward_fn, images_adv, images_orig, None)
             # yield to to make sure reward computation starts
             time.sleep(0)
 
@@ -388,7 +388,7 @@ def main(_):
             {
                 "pertrubed images": [
                     wandb.Image(image, caption=f"{reward:.2f}")
-                    for image, reward in zip(images, rewards)
+                    for image, reward in zip(images_adv, rewards)
                 ],
             },
             step=global_step,

@@ -71,7 +71,7 @@ def l_inf_norm_diff(ft_images, original_images):
     ft_images_ = torch.stack([to_tensor(image) for image in ft_images])
 
     images_diff = torch.linalg.vector_norm(
-        ft_images_ - original_images_, ord="inf", dim=(1, 2, 3)
+        ft_images_ - original_images_, ord=float('inf'), dim=(1, 2, 3)
     )
     return images_diff
 

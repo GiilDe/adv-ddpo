@@ -49,7 +49,7 @@ def get_config():
     # classifier-free guidance weight. 1.0 is no guidance.
     sample.guidance_scale = 1.0
     # batch size (per GPU!) to use for sampling.
-    sample.batch_size = 1
+    sample.batch_size = 256
     # number of batches to sample per epoch. the total number of samples per epoch is `num_batches_per_epoch *
     # batch_size * num_gpus`.
     sample.num_batches_per_epoch = 1
@@ -57,11 +57,11 @@ def get_config():
     ###### Training ######
     config.train = train = ml_collections.ConfigDict()
     # batch size (per GPU!) to use for training.
-    train.batch_size = 1
+    train.batch_size = 256
     # whether to use the 8bit Adam optimizer from bitsandbytes.
     train.use_8bit_adam = False
     # learning rate.
-    train.learning_rate = 2e-4
+    train.learning_rate = 1e-5
     # Adam beta1.
     train.adam_beta1 = 0.9
     # Adam beta2.
@@ -84,15 +84,15 @@ def get_config():
     # clip advantages to the range [-adv_clip_max, adv_clip_max].
     train.adv_clip_max = 5
     # the PPO clip range.
-    train.clip_range = 1e-4
+    train.clip_range = 1e-6
     # the fraction of timesteps to train on. if set to less than 1.0, the model will be trained on a subset of the
     # timesteps for each sample. this will speed up training but reduce the accuracy of policy gradient estimates.
     train.timestep_fraction = 1.0
 
     ###### Reward Function ######
     # reward function to use. see `rewards.py` for available reward functions.
-    config.reward_fn = "untargeted_l2_img_diff"
-    config.images_diff_weight = 0.3
+    config.reward_fn = "untargeted_l_inf_img_diff"
+    config.images_diff_weight = 1.2
 
     ###### Per-Prompt Stat Tracking ######
     # when enabled, the model will track the mean and std of reward on a per-prompt basis and use that to compute
