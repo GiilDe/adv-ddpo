@@ -231,7 +231,7 @@ def main(_):
     )
 
     # prepare reward fn
-    reward_fn = getattr(ddpo_pytorch.rewards, config.reward_fn)()
+    reward_fn = getattr(ddpo_pytorch.rewards, config.reward_fn)(config)
 
     # for some reason, autocast is necessary for non-lora training but for lora training it isn't necessary and it uses
     # more memory

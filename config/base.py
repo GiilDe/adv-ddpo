@@ -91,7 +91,8 @@ def get_config():
 
     ###### Reward Function ######
     # reward function to use. see `rewards.py` for available reward functions.
-    config.reward_fn = "untargeted_mnist_classifier"
+    config.reward_fn = "untargeted_l2_img_diff"
+    config.images_diff_weight = 0.3
 
     ###### Per-Prompt Stat Tracking ######
     # when enabled, the model will track the mean and std of reward on a per-prompt basis and use that to compute
