@@ -31,6 +31,8 @@ def pipeline_with_logprob(
     callback_steps: int = 1,
     guidance_rescale: float = 0.0,
     image_shape: Optional[Tuple[int, int, int, int]] = None,
+    all_variance_noize: Optional[torch.FloatTensor] = None,
+    return_extra: bool = True,
 ):
     r"""
     Function invoked when calling the pipeline for generation.
@@ -100,11 +102,14 @@ def pipeline_with_logprob(
 
     # 7. Denoising loop
     num_warmup_steps = len(timesteps) - num_inference_steps * self.scheduler.order
-    latents = noize if noize else randn_tensor(image_shape, generator=generator, device=self.device, dtype=self.unet.dtype)
-    all_latents = [latents]
-    all_log_probs = []
-    all_variance_noize = []
+    latents = noize if noize is not None else randn_tensor(image_shape, generator=generator, device=self.device, dtype=self.unet.dtype)
+    if return_extra:
+        all_latents = [latents]
+        all_log_probs = []
+        all_variance_noize = []
     with self.progress_bar(total=num_inference_steps) as progress_bar:
+        if all_variance_noize is not None:
+            all_variance_noise_iter = iter(all_variance_noize)
         for i, t in enumerate(timesteps):
             # expand the latents if we are doing classifier free guidance
             latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
@@ -125,12 +130,17 @@ def pipeline_with_logprob(
                 # Based on 3.4. in https://arxiv.org/pdf/2305.08891.pdf
                 noise_pred = rescale_noise_cfg(noise_pred, noise_pred_text, guidance_rescale=guidance_rescale)
 
+            if all_variance_noize is not None and not return_extra:
+                variance_noize = next(all_variance_noise_iter)
+            else:
+                variance_noize = None
             # compute the previous noisy sample x_t -> x_t-1
-            latents, log_prob, variance_noise = ddim_step_with_logprob(self.scheduler, noise_pred, t, latents, generator=generator, eta=eta)
+            latents, log_prob, variance_noise = ddim_step_with_logprob(self.scheduler, noise_pred, t, latents, generator=generator, eta=eta, variance_noize=variance_noize)
 
-            all_latents.append(latents)
-            all_log_probs.append(log_prob)
-            all_variance_noize.append(variance_noise)
+            if return_extra:
+                all_latents.append(latents)
+                all_log_probs.append(log_prob)
+                all_variance_noize.append(variance_noise)
 
             # call the callback, if provided
             if i == len(timesteps) - 1 or ((i + 1) > num_warmup_steps and (i + 1) % self.scheduler.order == 0):
@@ -152,4 +162,6 @@ def pipeline_with_logprob(
     if hasattr(self, "final_offload_hook") and self.final_offload_hook is not None:
         self.final_offload_hook.offload()
 
+    if not return_extra:
+        return image
     return image, all_latents, all_log_probs, all_variance_noize

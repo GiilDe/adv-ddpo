@@ -320,8 +320,20 @@ def main(_):
                     image_shape=image_shape,
                 )
 
-            noize = latents[0]
-            images_orig = pipeline_orig(image_=noize).images
+                noize = latents[0]
+            #images_orig = pipeline_orig(image_=noize, all_variance_noise=all_variance_noize, eta=config.sample.eta).images
+
+                images_orig = pipeline_with_logprob(
+                    self=pipeline_orig,
+                    noize=noize,
+                    num_inference_steps=config.sample.num_steps,
+                    guidance_scale=config.sample.guidance_scale,
+                    eta=config.sample.eta,
+                    output_type="pil",
+                    image_shape=image_shape,
+                    all_variance_noize=all_variance_noize,
+                    return_extra=False,
+                )
 
             latents = torch.stack(
                 latents, dim=1

@@ -41,6 +41,7 @@ def ddim_step_with_logprob(
     use_clipped_model_output: bool = False,
     generator=None,
     prev_sample: Optional[torch.FloatTensor] = None,
+    variance_noize: Optional[torch.FloatTensor] = None,
 ) -> Union[DDIMSchedulerOutput, Tuple]:
     """
     Predict the sample at the previous timestep by reversing the SDE. Core function to propagate the diffusion
@@ -151,7 +152,7 @@ def ddim_step_with_logprob(
     if prev_sample is None:
         variance_noise = randn_tensor(
             model_output.shape, generator=generator, device=model_output.device, dtype=model_output.dtype
-        )
+        ) if variance_noize is None else variance_noize
         prev_sample = prev_sample_mean + std_dev_t * variance_noise
 
     # log prob of prev_sample given prev_sample_mean and std_dev_t
