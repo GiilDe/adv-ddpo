@@ -108,7 +108,7 @@ def pipeline_with_logprob(
         all_log_probs = []
         all_variance_noize = []
     with self.progress_bar(total=num_inference_steps) as progress_bar:
-        if all_variance_noize is not None:
+        if all_variance_noize is not None and not return_extra:
             all_variance_noise_iter = iter(all_variance_noize)
         for i, t in enumerate(timesteps):
             # expand the latents if we are doing classifier free guidance
