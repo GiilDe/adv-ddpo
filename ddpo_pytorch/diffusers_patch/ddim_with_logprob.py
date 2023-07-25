@@ -147,6 +147,7 @@ def ddim_step_with_logprob(
             " `prev_sample` stays `None`."
         )
 
+    variance_noise = None
     if prev_sample is None:
         variance_noise = randn_tensor(
             model_output.shape, generator=generator, device=model_output.device, dtype=model_output.dtype
@@ -162,4 +163,4 @@ def ddim_step_with_logprob(
     # mean along all but batch dimension
     log_prob = log_prob.mean(dim=tuple(range(1, log_prob.ndim)))
 
-    return prev_sample.type(sample.dtype), log_prob
+    return prev_sample.type(sample.dtype), log_prob, variance_noise

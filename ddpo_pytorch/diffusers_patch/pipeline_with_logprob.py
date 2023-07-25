@@ -103,6 +103,7 @@ def pipeline_with_logprob(
     latents = noize if noize else randn_tensor(image_shape, generator=generator, device=self.device, dtype=self.unet.dtype)
     all_latents = [latents]
     all_log_probs = []
+    all_variance_noize = []
     with self.progress_bar(total=num_inference_steps) as progress_bar:
         for i, t in enumerate(timesteps):
             # expand the latents if we are doing classifier free guidance
@@ -125,10 +126,11 @@ def pipeline_with_logprob(
                 noise_pred = rescale_noise_cfg(noise_pred, noise_pred_text, guidance_rescale=guidance_rescale)
 
             # compute the previous noisy sample x_t -> x_t-1
-            latents, log_prob = ddim_step_with_logprob(self.scheduler, noise_pred, t, latents, generator=generator, eta=eta)
+            latents, log_prob, variance_noise = ddim_step_with_logprob(self.scheduler, noise_pred, t, latents, generator=generator, eta=eta)
 
             all_latents.append(latents)
             all_log_probs.append(log_prob)
+            all_variance_noize.append(variance_noise)
 
             # call the callback, if provided
             if i == len(timesteps) - 1 or ((i + 1) > num_warmup_steps and (i + 1) % self.scheduler.order == 0):
@@ -150,4 +152,4 @@ def pipeline_with_logprob(
     if hasattr(self, "final_offload_hook") and self.final_offload_hook is not None:
         self.final_offload_hook.offload()
 
-    return image, all_latents, all_log_probs
+    return image, all_latents, all_log_probs, all_variance_noize

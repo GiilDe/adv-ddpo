@@ -38,6 +38,7 @@ class DDIMPipelineGivenImage(DiffusionPipeline):
         output_type: Optional[str] = "pil",
         return_dict: bool = True,
         post_process: bool = True,
+        all_variance_noise: Optional[torch.FloatTensor] = None,
     ) -> Union[ImagePipelineOutput, Tuple]:
         r"""
         Args:
@@ -81,6 +82,8 @@ class DDIMPipelineGivenImage(DiffusionPipeline):
 
         image = image_ if image_ is not None else randn_tensor(image_shape, generator=generator, device=self.device, dtype=self.unet.dtype)
 
+        if all_variance_noise is not None:
+            all_variance_noise_iter = iter(all_variance_noise)
         for t in self.progress_bar(self.scheduler.timesteps):
             # 1. predict noise model_output
             model_output = self.unet(image, t).sample
@@ -88,8 +91,12 @@ class DDIMPipelineGivenImage(DiffusionPipeline):
             # 2. predict previous mean of image x_t-1 and add variance depending on eta
             # eta corresponds to η in paper and should be between [0, 1]
             # do x_t -> x_t-1
+            if all_variance_noise is not None:
+                variance_noize = next(all_variance_noise_iter)
+            else:
+                variance_noize = None
             image = self.scheduler.step(
-                model_output, t, image, eta=eta, use_clipped_model_output=use_clipped_model_output
+                model_output, t, image, eta=eta, use_clipped_model_output=use_clipped_model_output, variance_noise=variance_noize
             ).prev_sample
 
         if post_process:

@@ -6,14 +6,14 @@ def get_config():
 
     ###### General ######
     # run name for wandb logging and checkpoint saving -- if not provided, will be auto-generated based on the datetime.
-    config.run_name = "untargeted overfit_exp"
+    config.run_name = ""
     # random seed for reproducibility.
     config.seed = 42
     # top-level logging directory for checkpoint saving.
     config.logdir = "logs"
     # number of epochs to train for. each epoch is one round of sampling from the model followed by training on those
     # samples.
-    config.num_epochs = 100
+    config.num_epochs = 200
     # number of epochs between saving model checkpoints.
     config.save_freq = 20
     # number of checkpoints to keep before overwriting old ones.
@@ -25,6 +25,7 @@ def get_config():
     # resume training from a checkpoint. either an exact checkpoint directory (e.g. checkpoint_50), or a directory
     # containing checkpoints, in which case the latest one will be used. `config.use_lora` must be set to the same value
     # as the run that generated the saved checkpoint.
+    # config.resume_from = "logs/untargeted overfit_exp_2023.07.25_12.49.37/checkpoints"
     config.resume_from = ""
     # whether or not to use LoRA. LoRA reduces memory usage significantly by injecting small weight matrices into the
     # attention layers of the UNet. with LoRA, fp16, and a batch size of 1, finetuning Stable Diffusion should take
@@ -45,11 +46,11 @@ def get_config():
     sample.num_steps = 50
     # eta parameter for the DDIM sampler. this controls the amount of noise injected into the sampling process, with 0.0
     # being fully deterministic and 1.0 being equivalent to the DDPM sampler.
-    sample.eta = 0.05
+    sample.eta = 0.005
     # classifier-free guidance weight. 1.0 is no guidance.
     sample.guidance_scale = 1.0
     # batch size (per GPU!) to use for sampling.
-    sample.batch_size = 256
+    sample.batch_size = 1
     # number of batches to sample per epoch. the total number of samples per epoch is `num_batches_per_epoch *
     # batch_size * num_gpus`.
     sample.num_batches_per_epoch = 1
@@ -57,7 +58,7 @@ def get_config():
     ###### Training ######
     config.train = train = ml_collections.ConfigDict()
     # batch size (per GPU!) to use for training.
-    train.batch_size = 256
+    train.batch_size = 1
     # whether to use the 8bit Adam optimizer from bitsandbytes.
     train.use_8bit_adam = False
     # learning rate.
@@ -92,18 +93,18 @@ def get_config():
     ###### Reward Function ######
     # reward function to use. see `rewards.py` for available reward functions.
     config.reward_fn = "untargeted_l_inf_img_diff"
-    config.images_diff_weight = 1.2
-    config.images_diff_threshold = 0.3
+    config.images_diff_weight = 0
+    config.images_diff_threshold = 0.0
 
     ###### Per-Prompt Stat Tracking ######
     # when enabled, the model will track the mean and std of reward on a per-prompt basis and use that to compute
     # advantages. set `config.per_prompt_stat_tracking` to None to disable per-prompt stat tracking, in which case
     # advantages will be calculated using the mean and std of the entire batch.
-    config.per_prompt_stat_tracking = ml_collections.ConfigDict()
+    config.stat_tracking = ml_collections.ConfigDict()
     # number of reward values to store in the buffer for each prompt. the buffer persists across epochs.
-    config.per_prompt_stat_tracking.buffer_size = 16
+    config.stat_tracking.buffer_size = 16
     # the minimum number of reward values to store in the buffer before using the per-prompt mean and std. if the buffer
     # contains fewer than `min_count` values, the mean and std of the entire batch will be used instead.
-    config.per_prompt_stat_tracking.min_count = 16
+    config.stat_tracking.min_count = 16
 
     return config

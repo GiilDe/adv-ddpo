@@ -97,6 +97,8 @@ def main(_):
         config.pretrained.model, revision=config.pretrained.revision
     )
     pipeline_orig = pipeline_orig.to(accelerator.device)
+    pipeline_orig.unet.eval()
+    pipeline_orig.unet.requires_grad_(False)
     # freeze parameters of models to save more memory
     pipeline_ft.unet.requires_grad_(not config.use_lora)
     # disable safety checker
@@ -226,8 +228,8 @@ def main(_):
     )
 
     stat_tracker = PerPromptStatTracker(
-        config.per_prompt_stat_tracking.buffer_size,
-        config.per_prompt_stat_tracking.min_count,
+        config.stat_tracking.buffer_size,
+        config.stat_tracking.min_count,
     )
 
     # prepare reward fn
@@ -308,7 +310,7 @@ def main(_):
         ):
             # sample
             with autocast():
-                images_adv, latents, log_probs = pipeline_with_logprob(
+                images_adv, latents, log_probs, all_variance_noize = pipeline_with_logprob(
                     self=pipeline_ft,
                     noize=None,
                     num_inference_steps=config.sample.num_steps,
@@ -349,7 +351,8 @@ def main(_):
                 }
             )
 
-        images_diffs = []
+        images_diffs_l2 = []
+        images_diffs_l_inf = []
         accuracy = []
         # wait for all rewards to be computed
         for sample in tqdm(
@@ -359,11 +362,13 @@ def main(_):
             position=0,
         ):
             rewards, reward_metadata = sample["rewards"].result()
-            images_diffs.append(reward_metadata["images_diff"])
+            images_diffs_l2.append(reward_metadata["images_diff_l2"])
+            images_diffs_l_inf.append(reward_metadata["images_diff_l_inf"])
             accuracy.append(reward_metadata["accuracy"])
             sample["rewards"] = torch.as_tensor(rewards, device=accelerator.device)
 
-        images_diffs = torch.stack(images_diffs).mean()
+        images_diffs_l2 = torch.stack(images_diffs_l2)
+        images_diffs_l_inf = torch.stack(images_diffs_l_inf)
         accuracy = torch.stack(accuracy).mean()
         # collate samples into dict where each entry has shape (num_batches_per_epoch * sample.batch_size, ...)
         samples = {k: torch.cat([s[k] for s in samples]) for k in samples[0].keys()}
@@ -374,11 +379,14 @@ def main(_):
         # log rewards and images
         accelerator.log(
             {
-                "reward": rewards,
+                "reward_histogram": rewards,
                 "epoch": epoch,
                 "reward_mean": rewards.mean(),
                 "reward_std": rewards.std(),
-                "images_diffs_mean": images_diffs,
+                "images_diffs_l2_mean": images_diffs_l2.mean(),
+                "images_diffs_l_inf_mean": images_diffs_l_inf.mean(),
+                "images_diffs_l2_histgoram": images_diffs_l2,
+                "images_diffs_l_inf_histgoram": images_diffs_l_inf,
                 "accuracy_mean": accuracy,
             },
             step=global_step,
@@ -491,7 +499,7 @@ def main(_):
                                     sample["timesteps"][:, j],
                                 ).sample
                             # compute the log prob of next_latents given latents under the current model
-                            _, log_prob = ddim_step_with_logprob(
+                            _, log_prob, _ = ddim_step_with_logprob(
                                 pipeline_ft.scheduler,
                                 noise_pred,
                                 sample["timesteps"][:, j],

@@ -19,45 +19,6 @@ mnist_pil_to_tensor = torchvision.transforms.Compose(
 )
 
 
-def gen_reward_fn(norm, config):
-    def _fn(ft_images, original_images, metadata):
-        with torch.no_grad():
-            original_images_ = torch.stack(
-                [mnist_pil_to_tensor(image) for image in original_images]
-            )
-            ft_images_ = torch.stack(
-                [mnist_pil_to_tensor(image) for image in ft_images]
-            )
-
-            original_scores = mnist_classifier(original_images_)
-            labels = original_scores.argmax(dim=1)
-
-            ft_scores = mnist_classifier(ft_images_)
-            ft_labels_scores = torch.gather(ft_scores, 1, labels.unsqueeze(1))
-            ft_labels_scores = ft_labels_scores.reshape(
-                len(ft_images)
-            )  # remove useless dimensions
-
-            ft_labels = ft_scores.argmax(dim=1)
-            accuracy = (ft_labels == labels).float().mean()
-
-            images_diff = norm(ft_images, original_images)
-            images_penalty = (
-                torch.maximum(torch.zeros_like(images_diff), images_diff - config.images_diff_threshold)
-                * config.images_diff_weight
-                if config.images_diff_threshold != 0
-                else images_diff * config.images_diff_weight
-            )
-            # reward = (1 - ft_labels_scores) - lambda*max(0, L_p(img_original, img_ft) - threshold), i.e if L_p(img_original, img_ft) < threshold then penalty is 0.
-            return (1 - ft_labels_scores) - images_penalty, {
-                "ft_labels_scores": ft_labels_scores,
-                "images_diff": images_diff,
-                "accuracy": accuracy,
-            }
-
-    return _fn
-
-
 def l2_norm_diff(ft_images, original_images):
     original_images_ = torch.stack([to_tensor(image) for image in original_images])
     ft_images_ = torch.stack([to_tensor(image) for image in ft_images])
@@ -83,9 +44,57 @@ def l_inf_norm_diff(ft_images, original_images):
     return images_diff
 
 
+def gen_reward_fn(l_for_penalty, config):
+    def _fn(ft_images, original_images, metadata):
+        assert l_for_penalty in ["l_inf", "l2"]
+        with torch.no_grad():
+            original_images_ = torch.stack(
+                [mnist_pil_to_tensor(image) for image in original_images]
+            )
+            ft_images_ = torch.stack(
+                [mnist_pil_to_tensor(image) for image in ft_images]
+            )
+
+            original_scores = mnist_classifier(original_images_)
+            labels = original_scores.argmax(dim=1)
+
+            ft_scores = mnist_classifier(ft_images_)
+            ft_labels_scores = torch.gather(ft_scores, 1, labels.unsqueeze(1))
+            ft_labels_scores = ft_labels_scores.reshape(
+                len(ft_images)
+            )  # remove useless dimensions
+
+            ft_labels = ft_scores.argmax(dim=1)
+            accuracy = (ft_labels == labels).float().mean()
+
+            images_diff_l2 = l2_norm_diff(ft_images, original_images)
+            images_diff_l_inf = l_inf_norm_diff(ft_images, original_images)
+            images_diff_penalty = (
+                images_diff_l_inf if l_for_penalty == "l_inf" else images_diff_l2
+            )
+            images_penalty = (
+                torch.maximum(
+                    torch.zeros_like(images_diff_penalty),
+                    images_diff_penalty - config.images_diff_threshold,
+                )
+                * config.images_diff_weight
+                if config.images_diff_threshold != 0
+                else images_diff_penalty * config.images_diff_weight
+            )
+            # reward = (1 - ft_labels_scores) - lambda*max(0, L_p(img_original, img_ft) - threshold), i.e if L_p(img_original, img_ft) < threshold then penalty is 0.
+            return (1 - ft_labels_scores) - images_penalty, {
+                "ft_labels_scores": ft_labels_scores,
+                "images_diff_l2": images_diff_l2,
+                "images_diff_l_inf": images_diff_l_inf,
+                "accuracy": accuracy,
+            }
+
+    return _fn
+
+
 def untargeted_l2_img_diff(config):
-    return gen_reward_fn(l2_norm_diff, config)
+    return gen_reward_fn("l2", config)
 
 
 def untargeted_l_inf_img_diff(config):
-    return gen_reward_fn(l_inf_norm_diff, config)
+    return gen_reward_fn("l_inf", config)
