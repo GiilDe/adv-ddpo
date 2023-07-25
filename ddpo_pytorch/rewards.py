@@ -48,6 +48,7 @@ def gen_reward_fn(norm, config):
                 if config.images_diff_threshold != 0
                 else images_diff * config.images_diff_weight
             )
+            # reward = (1 - ft_labels_scores) - lambda*max(0, L_p(img_original, img_ft) - threshold), i.e if L_p(img_original, img_ft) < threshold then penalty is 0.
             return (1 - ft_labels_scores) - images_penalty, {
                 "ft_labels_scores": ft_labels_scores,
                 "images_diff": images_diff,
