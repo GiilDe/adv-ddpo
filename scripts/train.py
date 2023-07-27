@@ -284,6 +284,7 @@ def main(_):
         f"  Number of gradient updates per inner epoch = {samples_per_epoch // total_train_batch_size}"
     )
     logger.info(f"  Number of inner epochs = {config.train.num_inner_epochs}")
+    logger.info(f"  Number of processes = {accelerator.num_processes}")
 
     assert config.sample.batch_size >= config.train.batch_size
     assert config.sample.batch_size % config.train.batch_size == 0
@@ -424,11 +425,7 @@ def main(_):
             step=global_step,
         )
 
-        # advantages = (rewards - rewards.mean()) / (rewards.std() + 1e-8)
-
-        advantages = stat_tracker.update(rewards)
-
-        # advantages = rewards
+        advantages = stat_tracker.update(rewards) if config.historical_normalization else (rewards - rewards.mean()) / (rewards.std() + 1e-8)
 
         # ungather advantages; we only need to keep the entries corresponding to the samples on this process
         samples["advantages"] = (
