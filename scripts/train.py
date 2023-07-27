@@ -39,11 +39,8 @@ def main(_):
     # basic Accelerate and logging setup
     config = FLAGS.config
 
-    unique_id = datetime.datetime.now().strftime("%Y.%m.%d_%H.%M.%S")
     if not config.run_name:
-        config.run_name = unique_id
-    else:
-        config.run_name += "_" + unique_id
+        config.run_name = datetime.datetime.now().strftime("%Y.%m.%d_%H.%M.%S")
 
     if config.resume_from:
         config.resume_from = os.path.normpath(os.path.expanduser(config.resume_from))
@@ -322,7 +319,6 @@ def main(_):
                 )
 
                 noize = latents[0]
-            #images_orig = pipeline_orig(image_=noize, all_variance_noise=all_variance_noize, eta=config.sample.eta).images
 
                 images_orig = pipeline_with_logprob(
                     self=pipeline_orig,
@@ -367,6 +363,7 @@ def main(_):
         images_diffs_l2 = []
         images_diffs_l_inf = []
         accuracy = []
+        ft_labels_scores = []
         # wait for all rewards to be computed
         for sample in tqdm(
             samples,
@@ -377,11 +374,13 @@ def main(_):
             rewards, reward_metadata = sample["rewards"].result()
             images_diffs_l2.append(reward_metadata["images_diff_l2"])
             images_diffs_l_inf.append(reward_metadata["images_diff_l_inf"])
+            ft_labels_scores.append(reward_metadata["ft_labels_scores"])  
             accuracy.append(reward_metadata["accuracy"])
             sample["rewards"] = torch.as_tensor(rewards, device=accelerator.device)
 
         images_diffs_l2 = torch.stack(images_diffs_l2)
         images_diffs_l_inf = torch.stack(images_diffs_l_inf)
+        ft_labels_scores = torch.stack(ft_labels_scores)
         accuracy = torch.stack(accuracy).mean()
         # collate samples into dict where each entry has shape (num_batches_per_epoch * sample.batch_size, ...)
         samples = {k: torch.cat([s[k] for s in samples]) for k in samples[0].keys()}
@@ -393,6 +392,7 @@ def main(_):
         accelerator.log(
             {
                 "reward_histogram": rewards,
+                "labels_scores_histogram": ft_labels_scores,
                 "epoch": epoch,
                 "reward_mean": rewards.mean(),
                 "reward_std": rewards.std(),
