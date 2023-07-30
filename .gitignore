@@ -306,3 +306,9 @@ tags
 wandb/
 logs/
 notebooks/
+run.slurm
+connect_wandb.py
+awesome.out
+awesome.err
+.gitignore
+.gitignore
