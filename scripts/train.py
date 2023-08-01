@@ -24,7 +24,7 @@ import tqdm
 import tempfile
 from PIL import Image
 import torch.nn.functional as F
-
+import torchvision
 from models import DDIMPipelineGivenImage
 
 tqdm = partial(tqdm.tqdm, dynamic_ncols=True)
@@ -73,8 +73,11 @@ def main(_):
         # we always accumulate gradients across timesteps; we want config.train.gradient_accumulation_steps to be the
         # number of *samples* we accumulate across, so we need to multiply by the number of training timesteps to get
         # the total number of optimizer steps to accumulate across.
-        gradient_accumulation_steps=config.train.gradient_accumulation_steps
-        * num_train_timesteps + 1,
+        gradient_accumulation_steps=(
+            config.train.gradient_accumulation_steps * num_train_timesteps + 1
+        )
+        if config.diffusion_loss
+        else (config.train.gradient_accumulation_steps * num_train_timesteps),
     )
     if accelerator.is_main_process:
         accelerator.init_trackers(
@@ -204,6 +207,7 @@ def main(_):
     if config.allow_tf32:
         torch.backends.cuda.matmul.allow_tf32 = True
 
+    to_tensor = torchvision.transforms.ToTensor()
     # Initialize the optimizer
     if config.train.use_8bit_adam:
         try:
@@ -583,28 +587,30 @@ def main(_):
                         info = defaultdict(list)
 
             #################### TRAINING DIFFUSION ##########
-            # Sample a random timestep for each image
-            timesteps = torch.randint(
-                0, pipeline_ft.scheduler.config.num_train_timesteps, (config.sample.batch_size,), device=accelerator.device
-            ).long()
+            if config.diffusion_loss:
+                # Sample a random timestep for each image
+                timesteps = torch.randint(
+                    0, pipeline_ft.scheduler.config.num_train_timesteps, (config.sample.batch_size,), device=accelerator.device
+                ).long()
 
-            # Add noise to the clean images according to the noise magnitude at each timestep
-            # (this is the forward diffusion process)
-            noisy_images = pipeline_ft.scheduler.add_noise(images_orig_deterministic, noize, timesteps)
+                # Add noise to the clean images according to the noise magnitude at each timestep
+                # (this is the forward diffusion process)
+                
+                images_orig_deterministic = torch.stack([to_tensor(image) for image in images_orig_deterministic]).to(accelerator.device)
+                noisy_images = pipeline_ft.scheduler.add_noise(images_orig_deterministic, noize, timesteps)
+                with accelerator.accumulate(pipeline_ft.unet):
+                    # Predict the noise residual
+                    noise_pred = pipeline_ft.unet(noisy_images, timesteps, return_dict=False)[0]
+                    loss = config.images_diff_weight_loss*F.mse_loss(noise_pred, noize)
+                    accelerator.backward(loss)
 
-            with accelerator.accumulate(pipeline_ft.unet):
-                # Predict the noise residual
-                noise_pred = pipeline_ft.unet(noisy_images, timesteps, return_dict=False)[0]
-                loss = config.images_diff_weight*F.mse_loss(noise_pred, noize)
-                accelerator.backward(loss)
-
-                if accelerator.sync_gradients:
-                    accelerator.clip_grad_norm_(
-                        trainable_layers.parameters(),
-                        config.train.max_grad_norm,
-                    )
-                optimizer.step()
-                optimizer.zero_grad()
+                    if accelerator.sync_gradients:
+                        accelerator.clip_grad_norm_(
+                            trainable_layers.parameters(),
+                            config.train.max_grad_norm,
+                        )
+                    optimizer.step()
+                    optimizer.zero_grad()
 
             # make sure we did an optimization step at the end of the inner epoch
             assert accelerator.sync_gradients
