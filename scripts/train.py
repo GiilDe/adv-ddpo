@@ -300,7 +300,6 @@ def main(_):
         first_epoch = 0
 
     global_step = 0
-    # noize = torch.load("noize.pt")
     for epoch in range(first_epoch, config.num_epochs):
         #################### SAMPLING ####################
         pipeline_ft.unet.eval()
@@ -364,7 +363,6 @@ def main(_):
 
             samples.append(
                 {
-                    "noize": noize,
                     "timesteps": timesteps,
                     "latents": latents[
                         :, :-1
@@ -374,6 +372,9 @@ def main(_):
                     ],  # each entry is the latent after timestep t
                     "log_probs": log_probs,
                     "rewards": rewards,
+                    "noize": noize,
+                    "images_orig": torch.stack([to_tensor(image) for image in images_orig]).to(accelerator.device),
+                    "images_orig_deterministic": torch.stack([to_tensor(image) for image in images_orig_deterministic]).to(accelerator.device),
                 }
             )
 
@@ -554,6 +555,7 @@ def main(_):
                         # John Schulman says that (ratio - 1) - log(ratio) is a better
                         # estimator, but most existing code uses this so...
                         # http://joschu.net/blog/kl-approx.html
+                        info["approx_kl"].append(0.5 * torch.mean((log_prob - sample["log_probs"][:, j]) ** 2))
                         info["clipfrac"].append(
                             torch.mean(
                                 (
@@ -574,41 +576,51 @@ def main(_):
                         optimizer.zero_grad()
 
 
-            #################### TRAINING DIFFUSION ##########
-            if config.diffusion_loss:
-                # Sample a random timestep for each image
-                timesteps = torch.randint(
-                    0, pipeline_ft.scheduler.config.num_train_timesteps, (config.sample.batch_size,), device=accelerator.device
-                ).long()
+                #################### TRAINING DIFFUSION ##########
+                if config.diffusion_loss:
+                    noize = sample["noize"]
+                    images_orig_deterministic = sample["images_orig_deterministic"]
+                    # Sample a random timestep for each image
+                    timesteps = torch.randint(
+                        0, pipeline_ft.scheduler.config.num_train_timesteps, (config.sample.batch_size,), device=accelerator.device
+                    ).long()
 
-                # Add noise to the clean images according to the noise magnitude at each timestep
-                # (this is the forward diffusion process)
-                
-                images_orig_deterministic = torch.stack([to_tensor(image) for image in images_orig_deterministic]).to(accelerator.device)
-                noisy_images = pipeline_ft.scheduler.add_noise(images_orig_deterministic, noize, timesteps)
-                with accelerator.accumulate(pipeline_ft.unet):
-                    # Predict the noise residual
-                    noise_pred = pipeline_ft.unet(noisy_images, timesteps, return_dict=False)[0]
-                    loss = config.images_diff_weight_loss*F.mse_loss(noise_pred, noize)
-                    accelerator.backward(loss)
+                    # Add noise to the clean images according to the noise magnitude at each timestep
+                    # (this is the forward diffusion process)
+                    
+                    noisy_images, sqrt_alpha_prod, sqrt_one_minus_alpha_prod = pipeline_ft.scheduler.add_noise(images_orig_deterministic, noize, timesteps)
+                    if config.normalize_threshold:
+                        denominator = torch.linalg.vector_norm(noize - sqrt_one_minus_alpha_prod, ord=2, dim=(1, 2, 3))/torch.linalg.vector_norm(sqrt_alpha_prod, ord=2, dim=(1, 2, 3))
+                        Cs = config.images_diff_threshold_loss/denominator
+                    else:
+                        Cs = config.images_diff_threshold_loss
+                    with accelerator.accumulate(pipeline_ft.unet):
+                        # Predict the noise residual
+                        noise_pred = pipeline_ft.unet(noisy_images, timesteps, return_dict=False)[0]
+                        diffusion_loss = ddpo_pytorch.rewards.hinge_loss(F.mse_loss(noise_pred, noize), Cs, config.images_diff_weight_loss)
+                        info["diffusion_loss"].append(diffusion_loss)
+                        accelerator.backward(diffusion_loss)
 
-                    if accelerator.sync_gradients:
-                        accelerator.clip_grad_norm_(
-                            trainable_layers.parameters(),
-                            config.train.max_grad_norm,
-                        )
-                    optimizer.step()
-                    optimizer.zero_grad()
+                        if accelerator.sync_gradients:
+                            accelerator.clip_grad_norm_(
+                                trainable_layers.parameters(),
+                                config.train.max_grad_norm,
+                            )
+                        optimizer.step()
+                        optimizer.zero_grad()
 
-            # Checks if the accelerator has performed an optimization step behind the scenes
-            if accelerator.sync_gradients:
-                # log training-related stuff
-                info = {k: torch.mean(torch.stack(v)) for k, v in info.items()}
-                info = accelerator.reduce(info, reduction="mean")
-                info.update({"epoch": epoch, "inner_epoch": inner_epoch})
-                accelerator.log(info, step=global_step)
-                global_step += 1
-                info = defaultdict(list)
+                # Checks if the accelerator has performed an optimization step behind the scenes
+                if accelerator.sync_gradients:
+                    assert (j == num_train_timesteps - 1) and (
+                        i + 1
+                    ) % config.train.gradient_accumulation_steps == 0
+                    # log training-related stuff
+                    info = {k: torch.mean(torch.stack(v)) for k, v in info.items()}
+                    info = accelerator.reduce(info, reduction="mean")
+                    info.update({"epoch": epoch, "inner_epoch": inner_epoch})
+                    accelerator.log(info, step=global_step)
+                    global_step += 1
+                    info = defaultdict(list)
 
             # make sure we did an optimization step at the end of the inner epoch
             assert accelerator.sync_gradients

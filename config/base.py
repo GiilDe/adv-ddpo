@@ -6,7 +6,7 @@ def get_config():
 
     ###### General ######
     # run name for wandb logging and checkpoint saving -- if not provided, will be auto-generated based on the datetime.
-    config.run_name = "diffusion loss"
+    config.run_name = "diffusion hinge loss"
     # random seed for reproducibility.
     config.seed = 42
     # top-level logging directory for checkpoint saving.
@@ -97,7 +97,9 @@ def get_config():
     config.historical_normalization = False
 
     ###### Loss Function ######
-    config.images_diff_weight_loss = 10
+    config.images_diff_weight_loss = 1.3
+    config.images_diff_threshold_loss = 0.4
+    config.normalize_threshold = True
     config.diffusion_loss = True
 
     ###### Per-Prompt Stat Tracking ######
