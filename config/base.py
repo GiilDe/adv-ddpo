@@ -6,7 +6,7 @@ def get_config():
 
     ###### General ######
     # run name for wandb logging and checkpoint saving -- if not provided, will be auto-generated based on the datetime.
-    config.run_name = "historical_normalization = False test. Compare with large eta experiment"
+    config.run_name = "diffusion loss"
     # random seed for reproducibility.
     config.seed = 42
     # top-level logging directory for checkpoint saving.
@@ -98,7 +98,7 @@ def get_config():
 
     ###### Loss Function ######
     config.images_diff_weight_loss = 10
-    config.diffusion_loss = False
+    config.diffusion_loss = True
 
     ###### Per-Prompt Stat Tracking ######
     # when enabled, the model will track the mean and std of reward on a per-prompt basis and use that to compute

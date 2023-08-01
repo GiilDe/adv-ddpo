@@ -573,18 +573,6 @@ def main(_):
                         optimizer.step()
                         optimizer.zero_grad()
 
-                    # Checks if the accelerator has performed an optimization step behind the scenes
-                    if accelerator.sync_gradients:
-                        assert (j == num_train_timesteps - 1) and (
-                            i + 1
-                        ) % config.train.gradient_accumulation_steps == 0
-                        # log training-related stuff
-                        info = {k: torch.mean(torch.stack(v)) for k, v in info.items()}
-                        info = accelerator.reduce(info, reduction="mean")
-                        info.update({"epoch": epoch, "inner_epoch": inner_epoch})
-                        accelerator.log(info, step=global_step)
-                        global_step += 1
-                        info = defaultdict(list)
 
             #################### TRAINING DIFFUSION ##########
             if config.diffusion_loss:
@@ -611,6 +599,16 @@ def main(_):
                         )
                     optimizer.step()
                     optimizer.zero_grad()
+
+            # Checks if the accelerator has performed an optimization step behind the scenes
+            if accelerator.sync_gradients:
+                # log training-related stuff
+                info = {k: torch.mean(torch.stack(v)) for k, v in info.items()}
+                info = accelerator.reduce(info, reduction="mean")
+                info.update({"epoch": epoch, "inner_epoch": inner_epoch})
+                accelerator.log(info, step=global_step)
+                global_step += 1
+                info = defaultdict(list)
 
             # make sure we did an optimization step at the end of the inner epoch
             assert accelerator.sync_gradients
