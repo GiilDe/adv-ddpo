@@ -19,6 +19,17 @@ mnist_pil_to_tensor = torchvision.transforms.Compose(
 )
 
 
+def hinge_loss(images_distance, images_diff_threshold, images_diff_weight):
+    return (
+        torch.maximum(
+            torch.zeros_like(images_distance),
+            images_distance - images_diff_threshold,
+        )
+        * images_diff_weight
+        if (isinstance(images_diff_threshold, float) and images_diff_threshold > 0.0)
+        else images_distance * images_diff_weight
+    )
+
 def l2_norm_diff(ft_images, original_images):
     original_images_ = torch.stack([to_tensor(image) for image in original_images])
     ft_images_ = torch.stack([to_tensor(image) for image in ft_images])
@@ -69,18 +80,10 @@ def gen_reward_fn(l_for_penalty, config):
 
             images_diff_l2 = l2_norm_diff(ft_images, original_images)
             images_diff_l_inf = l_inf_norm_diff(ft_images, original_images)
-            images_diff_penalty = (
+            images_distance = (
                 images_diff_l_inf if l_for_penalty == "l_inf" else images_diff_l2
             )
-            images_penalty = (
-                torch.maximum(
-                    torch.zeros_like(images_diff_penalty),
-                    images_diff_penalty - config.images_diff_threshold,
-                )
-                * config.images_diff_weight
-                if config.images_diff_threshold != 0
-                else images_diff_penalty * config.images_diff_weight
-            )
+            images_penalty = hinge_loss(images_distance, config.images_diff_threshold, config.images_diff_weight)
             # reward = (1 - ft_labels_scores) - lambda*max(0, L_p(img_original, img_ft) - threshold), i.e if L_p(img_original, img_ft) < threshold then penalty is 0.
             return (1 - ft_labels_scores) - images_penalty, {
                 "ft_labels_scores": ft_labels_scores,

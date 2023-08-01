@@ -6,14 +6,14 @@ def get_config():
 
     ###### General ######
     # run name for wandb logging and checkpoint saving -- if not provided, will be auto-generated based on the datetime.
-    config.run_name = ""
+    config.run_name = "diffusion hinge loss"
     # random seed for reproducibility.
     config.seed = 42
     # top-level logging directory for checkpoint saving.
     config.logdir = "logs"
     # number of epochs to train for. each epoch is one round of sampling from the model followed by training on those
     # samples.
-    config.num_epochs = 200
+    config.num_epochs = 500
     # number of epochs between saving model checkpoints.
     config.save_freq = 20
     # number of checkpoints to keep before overwriting old ones.
@@ -25,7 +25,6 @@ def get_config():
     # resume training from a checkpoint. either an exact checkpoint directory (e.g. checkpoint_50), or a directory
     # containing checkpoints, in which case the latest one will be used. `config.use_lora` must be set to the same value
     # as the run that generated the saved checkpoint.
-    # config.resume_from = "logs/untargeted overfit_exp_2023.07.25_12.49.37/checkpoints"
     config.resume_from = ""
     # whether or not to use LoRA. LoRA reduces memory usage significantly by injecting small weight matrices into the
     # attention layers of the UNet. with LoRA, fp16, and a batch size of 1, finetuning Stable Diffusion should take
@@ -46,7 +45,7 @@ def get_config():
     sample.num_steps = 50
     # eta parameter for the DDIM sampler. this controls the amount of noise injected into the sampling process, with 0.0
     # being fully deterministic and 1.0 being equivalent to the DDPM sampler.
-    sample.eta = 0.1
+    sample.eta = 0.2
     # classifier-free guidance weight. 1.0 is no guidance.
     sample.guidance_scale = 1.0
     # batch size (per GPU!) to use for sampling.
@@ -85,16 +84,23 @@ def get_config():
     # clip advantages to the range [-adv_clip_max, adv_clip_max].
     train.adv_clip_max = 5
     # the PPO clip range.
-    train.clip_range = 1e-6
+    train.clip_range = 0.000001
     # the fraction of timesteps to train on. if set to less than 1.0, the model will be trained on a subset of the
     # timesteps for each sample. this will speed up training but reduce the accuracy of policy gradient estimates.
     train.timestep_fraction = 1.0
 
     ###### Reward Function ######
     # reward function to use. see `rewards.py` for available reward functions.
-    config.reward_fn = "untargeted_l_inf_img_diff"
-    config.images_diff_weight = 0
+    config.reward_fn = "untargeted_l2_img_diff"
+    config.images_diff_weight = 0.0
     config.images_diff_threshold = 0.0
+    config.historical_normalization = False
+
+    ###### Loss Function ######
+    config.images_diff_weight_loss = 1.3
+    config.images_diff_threshold_loss = 0.4
+    config.normalize_threshold = True
+    config.diffusion_loss = True
 
     ###### Per-Prompt Stat Tracking ######
     # when enabled, the model will track the mean and std of reward on a per-prompt basis and use that to compute
