@@ -7,7 +7,7 @@
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 from diffusers.utils import randn_tensor
 import torch
-
+import numpy as np
 from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion import (
     StableDiffusionPipeline,
     rescale_noise_cfg,
@@ -21,7 +21,6 @@ from .ddim_with_logprob import ddim_step_with_logprob
 def pipeline_with_logprob(
     self: DDIMPipelineGivenImage,
     num_inference_steps: int = 50,
-    guidance_scale: float = 7.5,
     eta: float = 0.0,
     generator: Optional[Union[torch.Generator, List[torch.Generator]]] = None,
     noize: Optional[torch.FloatTensor] = None,
@@ -29,10 +28,9 @@ def pipeline_with_logprob(
     return_dict: bool = True,
     callback: Optional[Callable[[int, int, torch.FloatTensor], None]] = None,
     callback_steps: int = 1,
-    guidance_rescale: float = 0.0,
     image_shape: Optional[Tuple[int, int, int, int]] = None,
     all_variance_noize: Optional[torch.FloatTensor] = None,
-    return_extra: bool = True,
+    return_preds: bool = False,
 ):
     r"""
     Function invoked when calling the pipeline for generation.
@@ -91,10 +89,6 @@ def pipeline_with_logprob(
     """
 
     device = self.device
-    # here `guidance_scale` is defined analog to the guidance weight `w` of equation (2)
-    # of the Imagen paper: https://arxiv.org/pdf/2205.11487.pdf . `guidance_scale = 1`
-    # corresponds to doing no classifier free guidance.
-    do_classifier_free_guidance = guidance_scale > 1.0
 
     # 4. Prepare timesteps
     self.scheduler.set_timesteps(num_inference_steps, device=device)
@@ -103,44 +97,41 @@ def pipeline_with_logprob(
     # 7. Denoising loop
     num_warmup_steps = len(timesteps) - num_inference_steps * self.scheduler.order
     latents = noize if noize is not None else randn_tensor(image_shape, generator=generator, device=self.device, dtype=self.unet.dtype)
-    if return_extra:
-        all_latents = [latents]
-        all_log_probs = []
-        all_variance_noize = []
+    
+    if return_preds:
+        timesteps_preds = np.random.choice(a=timesteps.tolist(), size=image_shape[0])
+        timesteps_preds = torch.tensor(timesteps_preds).to(device).long()
+        preds = torch.empty_like(latents)
+        latents_timesteps = torch.empty_like(latents)
+
+    all_latents = [latents]
+    all_log_probs = []
+    all_variance_noize_return = []
     with self.progress_bar(total=num_inference_steps) as progress_bar:
-        if all_variance_noize is not None and not return_extra:
+        if all_variance_noize is not None:
             all_variance_noise_iter = iter(all_variance_noize)
         for i, t in enumerate(timesteps):
-            # expand the latents if we are doing classifier free guidance
-            latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
-
             # predict the noise residual
             noise_pred = self.unet(
-                latent_model_input,
+                latents,
                 t,
                 return_dict=False,
             )[0]
 
-            # perform guidance
-            if do_classifier_free_guidance:
-                noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
-                noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
+            if return_preds:
+                preds[timesteps_preds == t] = noise_pred[timesteps_preds == t]
+                latents_timesteps[timesteps_preds == t] = latents[timesteps_preds == t]
+            
+            variance_noize = next(all_variance_noise_iter) if all_variance_noize is not None else None
 
-            if do_classifier_free_guidance and guidance_rescale > 0.0:
-                # Based on 3.4. in https://arxiv.org/pdf/2305.08891.pdf
-                noise_pred = rescale_noise_cfg(noise_pred, noise_pred_text, guidance_rescale=guidance_rescale)
-
-            if all_variance_noize is not None and not return_extra:
-                variance_noize = next(all_variance_noise_iter)
-            else:
-                variance_noize = None
             # compute the previous noisy sample x_t -> x_t-1
             latents, log_prob, variance_noise = ddim_step_with_logprob(self.scheduler, noise_pred, t, latents, generator=generator, eta=eta, variance_noize=variance_noize)
 
-            if return_extra:
+            if not return_preds:
                 all_latents.append(latents)
                 all_log_probs.append(log_prob)
-                all_variance_noize.append(variance_noise)
+            if all_variance_noize is None:
+                all_variance_noize_return.append(variance_noise)
 
             # call the callback, if provided
             if i == len(timesteps) - 1 or ((i + 1) > num_warmup_steps and (i + 1) % self.scheduler.order == 0):
@@ -162,6 +153,6 @@ def pipeline_with_logprob(
     if hasattr(self, "final_offload_hook") and self.final_offload_hook is not None:
         self.final_offload_hook.offload()
 
-    if not return_extra:
-        return image
-    return image, all_latents, all_log_probs, all_variance_noize
+    if return_preds:
+        return image, latents_timesteps, all_log_probs, all_variance_noize_return, preds, timesteps_preds
+    return image, all_latents, all_log_probs, all_variance_noize_return

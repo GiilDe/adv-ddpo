@@ -9,7 +9,7 @@ from ml_collections import config_flags
 from accelerate import Accelerator
 from accelerate.utils import set_seed, ProjectConfiguration
 from accelerate.logging import get_logger
-from diffusers import StableDiffusionPipeline, DDIMScheduler, UNet2DConditionModel
+from diffusers import DDIMScheduler, UNet2DConditionModel
 from diffusers.loaders import AttnProcsLayers
 from diffusers.models.attention_processor import LoRAAttnProcessor
 import numpy as np
@@ -21,8 +21,6 @@ import torch
 import wandb
 from functools import partial
 import tqdm
-import tempfile
-from PIL import Image
 import torch.nn.functional as F
 import torchvision
 from models import DDIMPipelineGivenImage
@@ -67,7 +65,7 @@ def main(_):
     )
 
     accelerator = Accelerator(
-        log_with="wandb",
+        log_with="wandb" if config.log else None,
         mixed_precision=config.mixed_precision,
         project_config=accelerator_config,
         # we always accumulate gradients across timesteps; we want config.train.gradient_accumulation_steps to be the
@@ -79,7 +77,7 @@ def main(_):
         if config.diffusion_loss
         else (config.train.gradient_accumulation_steps * num_train_timesteps),
     )
-    if accelerator.is_main_process:
+    if config.log and accelerator.is_main_process:
         accelerator.init_trackers(
             project_name="ddpo-pytorch",
             config=config.to_dict(),
@@ -316,7 +314,6 @@ def main(_):
                     self=pipeline_ft,
                     noize=None,
                     num_inference_steps=config.sample.num_steps,
-                    guidance_scale=config.sample.guidance_scale,
                     eta=config.sample.eta,
                     output_type="pil",
                     image_shape=image_shape,
@@ -324,28 +321,15 @@ def main(_):
 
                 noize = latents[0]
 
-                images_orig = pipeline_with_logprob(
+                images_orig, latents_orig, _, _, preds_orig, timesteps_preds = pipeline_with_logprob(
                     self=pipeline_orig,
                     noize=noize,
                     num_inference_steps=config.sample.num_steps,
-                    guidance_scale=config.sample.guidance_scale,
                     eta=config.sample.eta,
                     output_type="pil",
                     image_shape=image_shape,
                     all_variance_noize=all_variance_noize,
-                    return_extra=False,
-                )
-
-                images_orig_deterministic = pipeline_with_logprob(
-                    self=pipeline_orig,
-                    noize=noize,
-                    num_inference_steps=config.sample.num_steps,
-                    guidance_scale=config.sample.guidance_scale,
-                    eta=0,
-                    output_type="pil",
-                    image_shape=image_shape,
-                    all_variance_noize=all_variance_noize,
-                    return_extra=False,
+                    return_preds=True,
                 )
 
             latents = torch.stack(
@@ -372,9 +356,9 @@ def main(_):
                     ],  # each entry is the latent after timestep t
                     "log_probs": log_probs,
                     "rewards": rewards,
-                    "noize": noize,
-                    "images_orig": torch.stack([to_tensor(image) for image in images_orig]).to(accelerator.device),
-                    "images_orig_deterministic": torch.stack([to_tensor(image) for image in images_orig_deterministic]).to(accelerator.device),
+                    "timesteps_preds": timesteps_preds,
+                    "preds_orig": preds_orig,
+                    "latents_orig": latents_orig,
                 }
             )
 
@@ -407,41 +391,42 @@ def main(_):
         rewards = accelerator.gather(samples["rewards"]).cpu().numpy()
 
         # log rewards and images
-        accelerator.log(
-            {
-                "reward_histogram": rewards,
-                "labels_scores_histogram": ft_labels_scores,
-                "epoch": epoch,
-                "reward_mean": rewards.mean(),
-                "reward_std": rewards.std(),
-                "images_diffs_l2_mean": images_diffs_l2.mean(),
-                "images_diffs_l_inf_mean": images_diffs_l_inf.mean(),
-                "images_diffs_l2_histgoram": images_diffs_l2,
-                "images_diffs_l_inf_histgoram": images_diffs_l_inf,
-                "accuracy_mean": accuracy,
-            },
-            step=global_step,
-        )
-        # this is a hack to force wandb to log the images as JPEGs instead of PNGs
-        accelerator.log(
-            {
-                "pertrubed images": [
-                    wandb.Image(image, caption=f"{reward:.2f}")
-                    for image, reward in zip(images_adv, rewards)
-                ],
-            },
-            step=global_step,
-        )
+        if config.log:
+            accelerator.log(
+                {
+                    "reward_histogram": rewards,
+                    "labels_scores_histogram": ft_labels_scores,
+                    "epoch": epoch,
+                    "reward_mean": rewards.mean(),
+                    "reward_std": rewards.std(),
+                    "images_diffs_l2_mean": images_diffs_l2.mean(),
+                    "images_diffs_l_inf_mean": images_diffs_l_inf.mean(),
+                    "images_diffs_l2_histgoram": images_diffs_l2,
+                    "images_diffs_l_inf_histgoram": images_diffs_l_inf,
+                    "accuracy_mean": accuracy,
+                },
+                step=global_step,
+            )
+            # this is a hack to force wandb to log the images as JPEGs instead of PNGs
+            accelerator.log(
+                {
+                    "pertrubed images": [
+                        wandb.Image(image, caption=f"{reward:.2f}")
+                        for image, reward in zip(images_adv, rewards)
+                    ],
+                },
+                step=global_step,
+            )
 
-        accelerator.log(
-            {
-                "original images": [
-                    wandb.Image(image, caption=f"{reward:.2f}")
-                    for image, reward in zip(images_orig, rewards)
-                ],
-            },
-            step=global_step,
-        )
+            accelerator.log(
+                {
+                    "original images": [
+                        wandb.Image(image, caption=f"{reward:.2f}")
+                        for image, reward in zip(images_orig, rewards)
+                    ],
+                },
+                step=global_step,
+            )
 
         advantages = stat_tracker.update(rewards) if config.historical_normalization else (rewards - rewards.mean()) / (rewards.std() + 1e-8)
 
@@ -510,22 +495,10 @@ def main(_):
                 ):
                     with accelerator.accumulate(pipeline_ft.unet):
                         with autocast():
-                            if config.train.cfg:
-                                noise_pred = pipeline_ft.unet(
-                                    torch.cat([sample["latents"][:, j]] * 2),
-                                    torch.cat([sample["timesteps"][:, j]] * 2),
-                                ).sample
-                                noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
-                                noise_pred = (
-                                    noise_pred_uncond
-                                    + config.sample.guidance_scale
-                                    * (noise_pred_text - noise_pred_uncond)
-                                )
-                            else:
-                                noise_pred = pipeline_ft.unet(
-                                    sample["latents"][:, j],
-                                    sample["timesteps"][:, j],
-                                ).sample
+                            noise_pred = pipeline_ft.unet(
+                                sample["latents"][:, j],
+                                sample["timesteps"][:, j],
+                            ).sample
                             # compute the log prob of next_latents given latents under the current model
                             _, log_prob, _ = ddim_step_with_logprob(
                                 pipeline_ft.scheduler,
@@ -578,26 +551,20 @@ def main(_):
 
                 #################### TRAINING DIFFUSION ##########
                 if config.diffusion_loss:
-                    noize = sample["noize"]
-                    images_orig_deterministic = sample["images_orig_deterministic"]
-                    # Sample a random timestep for each image
-                    timesteps = torch.randint(
-                        0, pipeline_ft.scheduler.config.num_train_timesteps, (config.sample.batch_size,), device=accelerator.device
-                    ).long()
-
-                    # Add noise to the clean images according to the noise magnitude at each timestep
-                    # (this is the forward diffusion process)
+                    timesteps_preds = sample["timesteps_preds"]
+                    preds_orig = sample["preds_orig"]
+                    latents_orig = sample["latents_orig"]
                     
-                    noisy_images, sqrt_alpha_prod, sqrt_one_minus_alpha_prod = pipeline_ft.scheduler.add_noise(images_orig_deterministic, noize, timesteps)
-                    if config.normalize_threshold:
-                        denominator = torch.linalg.vector_norm(noize - sqrt_one_minus_alpha_prod, ord=2, dim=(1, 2, 3))/torch.linalg.vector_norm(sqrt_alpha_prod, ord=2, dim=(1, 2, 3))
-                        Cs = config.images_diff_threshold_loss/denominator
-                    else:
-                        Cs = config.images_diff_threshold_loss
+                    # noisy_images, sqrt_alpha_prod, sqrt_one_minus_alpha_prod = pipeline_ft.scheduler.add_noise(images_orig_deterministic, noize, timesteps)
+                    # if config.normalize_threshold:
+                    #     denominator = torch.linalg.vector_norm(noize - sqrt_one_minus_alpha_prod, ord=2, dim=(1, 2, 3))/torch.linalg.vector_norm(sqrt_alpha_prod, ord=2, dim=(1, 2, 3))
+                    #     Cs = config.images_diff_threshold_loss/denominator
+                    # else:
+                    Cs = config.images_diff_threshold_loss
                     with accelerator.accumulate(pipeline_ft.unet):
                         # Predict the noise residual
-                        noise_pred = pipeline_ft.unet(noisy_images, timesteps, return_dict=False)[0]
-                        diffusion_loss = ddpo_pytorch.rewards.hinge_loss(F.mse_loss(noise_pred, noize), Cs, config.images_diff_weight_loss)
+                        noise_pred = pipeline_ft.unet(latents_orig, timesteps_preds, return_dict=False)[0]
+                        diffusion_loss = ddpo_pytorch.rewards.hinge_loss(F.mse_loss(noise_pred, preds_orig), Cs, config.images_diff_weight_loss)
                         info["diffusion_loss"].append(diffusion_loss)
                         accelerator.backward(diffusion_loss)
 
@@ -618,7 +585,8 @@ def main(_):
                     info = {k: torch.mean(torch.stack(v)) for k, v in info.items()}
                     info = accelerator.reduce(info, reduction="mean")
                     info.update({"epoch": epoch, "inner_epoch": inner_epoch})
-                    accelerator.log(info, step=global_step)
+                    if config.log:
+                        accelerator.log(info, step=global_step)
                     global_step += 1
                     info = defaultdict(list)
 

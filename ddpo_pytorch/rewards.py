@@ -20,15 +20,15 @@ mnist_pil_to_tensor = torchvision.transforms.Compose(
 
 
 def hinge_loss(images_distance, images_diff_threshold, images_diff_weight):
-    return (
+    hinge_distance = (
         torch.maximum(
             torch.zeros_like(images_distance),
             images_distance - images_diff_threshold,
         )
-        * images_diff_weight
         if (isinstance(images_diff_threshold, float) and images_diff_threshold > 0.0)
-        else images_distance * images_diff_weight
+        else images_distance
     )
+    return hinge_distance * images_diff_weight
 
 def l2_norm_diff(ft_images, original_images):
     original_images_ = torch.stack([to_tensor(image) for image in original_images])

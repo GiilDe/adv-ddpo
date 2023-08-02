@@ -6,7 +6,7 @@ def get_config():
 
     ###### General ######
     # run name for wandb logging and checkpoint saving -- if not provided, will be auto-generated based on the datetime.
-    config.run_name = "diffusion hinge loss"
+    config.run_name = "models predictions loss, no normalization"
     # random seed for reproducibility.
     config.seed = 42
     # top-level logging directory for checkpoint saving.
@@ -97,9 +97,9 @@ def get_config():
     config.historical_normalization = False
 
     ###### Loss Function ######
-    config.images_diff_weight_loss = 1.3
-    config.images_diff_threshold_loss = 0.4
-    config.normalize_threshold = True
+    config.images_diff_weight_loss = 1.0
+    config.images_diff_threshold_loss = 0.04
+    config.normalize_threshold = False
     config.diffusion_loss = True
 
     ###### Per-Prompt Stat Tracking ######
@@ -112,5 +112,7 @@ def get_config():
     # the minimum number of reward values to store in the buffer before using the per-prompt mean and std. if the buffer
     # contains fewer than `min_count` values, the mean and std of the entire batch will be used instead.
     config.stat_tracking.min_count = 16
+
+    config.log = True
 
     return config
