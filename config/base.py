@@ -6,7 +6,7 @@ def get_config():
 
     ###### General ######
     # run name for wandb logging and checkpoint saving -- if not provided, will be auto-generated based on the datetime.
-    config.run_name = "models predictions loss, no normalization"
+    config.run_name = "models predictions hinge loss"
     # random seed for reproducibility.
     config.seed = 42
     # top-level logging directory for checkpoint saving.
@@ -15,7 +15,7 @@ def get_config():
     # samples.
     config.num_epochs = 500
     # number of epochs between saving model checkpoints.
-    config.save_freq = 20
+    config.save_freq = 10000000000
     # number of checkpoints to keep before overwriting old ones.
     config.num_checkpoint_limit = 5
     # mixed precision training. options are "fp16", "bf16", and "no". half-precision speeds up training significantly.
@@ -98,7 +98,7 @@ def get_config():
 
     ###### Loss Function ######
     config.images_diff_weight_loss = 1.0
-    config.images_diff_threshold_loss = 0.04
+    config.images_diff_threshold_loss = 0.004
     config.normalize_threshold = False
     config.diffusion_loss = True
 

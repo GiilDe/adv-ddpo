@@ -28,7 +28,7 @@ class TrainingConfig:
     overwrite_output_dir = True  # overwrite the old model when re-running the notebook
     seed = 0
 
-num_steps = 200
+num_steps = 50
 model_id = "nabdan/mnist_20_epoch"
 
 pipeline_orig = DDIMPipelineGivenImage.from_pretrained(model_id)
