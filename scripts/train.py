@@ -568,7 +568,7 @@ def main(_):
                         noise_pred = pipeline_ft.unet(latents_orig, timesteps_preds, return_dict=False)[0]
                         loss = F.mse_loss(noise_pred, preds_orig)
                         diffusion_loss = ddpo_pytorch.rewards.hinge_loss(loss, Cs, config.images_diff_weight_loss)
-                        info["diffusion_loss"].append(loss) # log the loss before the hinge loss
+                        info["diffusion_loss"].append(diffusion_loss)
                         accelerator.backward(diffusion_loss)
 
                         if accelerator.sync_gradients:
