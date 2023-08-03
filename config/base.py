@@ -6,7 +6,7 @@ def get_config():
 
     ###### General ######
     # run name for wandb logging and checkpoint saving -- if not provided, will be auto-generated based on the datetime.
-    config.run_name = "models predictions hinge loss"
+    config.run_name = "models predictions hinge loss. score 'hinge' reward"
     # random seed for reproducibility.
     config.seed = 42
     # top-level logging directory for checkpoint saving.
