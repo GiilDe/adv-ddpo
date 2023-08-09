@@ -2,21 +2,13 @@ from PIL import Image
 import io
 import numpy as np
 import torch
-
-from models import MnistClassifier
 import torchvision
 from torch import functional as F
+from torch import nn
 
-mnist_classifier = MnistClassifier()
+from ddpo_pytorch.classification.classifier import Classifier
+
 to_tensor = torchvision.transforms.ToTensor()
-mnist_classifier.load_state_dict(torch.load("model.pth"))
-mnist_classifier.eval()
-mnist_pil_to_tensor = torchvision.transforms.Compose(
-    [
-        to_tensor,
-        torchvision.transforms.Normalize((0.1307,), (0.3081,)),
-    ]
-)
 
 
 def hinge_loss(images_distance, images_diff_threshold, images_diff_weight):
@@ -55,21 +47,20 @@ def l_inf_norm_diff(ft_images, original_images):
     return images_diff
 
 
-def gen_reward_fn(l_for_penalty, config):
+def gen_reward_fn(l_for_penalty, config, classifier: Classifier):
     def _fn(ft_images, original_images, metadata):
         assert l_for_penalty in ["l_inf", "l2"]
         with torch.no_grad():
             original_images_ = torch.stack(
-                [mnist_pil_to_tensor(image) for image in original_images]
+                [classifier.preprocess(image) for image in original_images]
             )
             ft_images_ = torch.stack(
-                [mnist_pil_to_tensor(image) for image in ft_images]
+                [classifier.preprocess(image) for image in ft_images]
             )
-
-            original_scores = mnist_classifier(original_images_)
+            original_scores = classifier.predict(original_images_)
             labels = original_scores.argmax(dim=1)
-
-            ft_scores = mnist_classifier(ft_images_)
+            
+            ft_scores = classifier.predict(ft_images_)
             ft_labels_scores = torch.gather(ft_scores, 1, labels.unsqueeze(1))
             ft_labels_scores = ft_labels_scores.reshape(
                 len(ft_images)
@@ -84,7 +75,13 @@ def gen_reward_fn(l_for_penalty, config):
                 images_diff_l_inf if l_for_penalty == "l_inf" else images_diff_l2
             )
             images_penalty = hinge_loss(images_distance, config.images_diff_threshold, config.images_diff_weight) if config.images_diff_weight > 0.0 else 0.0
-            return torch.log(1 - ft_labels_scores) - images_penalty, {
+            #TODO: orginize this
+            if config.dataset == "MNIST":
+                reward = torch.log(1 - ft_labels_scores) - images_penalty
+            if config.dataset == "CIFAR10":
+                reward = 1 - ft_labels_scores - 0.5 * images_diff_l_inf
+
+            return reward , {
                 "ft_labels_scores": ft_labels_scores,
                 "images_diff_l2": images_diff_l2,
                 "images_diff_l_inf": images_diff_l_inf,
@@ -94,9 +91,12 @@ def gen_reward_fn(l_for_penalty, config):
     return _fn
 
 
-def untargeted_l2_img_diff(config):
-    return gen_reward_fn("l2", config)
+def untargeted_l2_img_diff(config, classifier):
+    return gen_reward_fn("l2", config, classifier)
 
 
-def untargeted_l_inf_img_diff(config):
-    return gen_reward_fn("l_inf", config)
+def untargeted_l_inf_img_diff(config, classifier):
+    return gen_reward_fn("l_inf", config, classifier)
+
+def sigmoid(x):
+    return 1 / (1 + np.exp(-x))
