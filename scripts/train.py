@@ -34,8 +34,10 @@ config_flags.DEFINE_config_file("config", "config/base.py", "Training configurat
 
 logger = get_logger(__name__)
 
+
 def l_p_norm_loss(preds_a, preds_b, p=2):
-    return torch.mean((preds_a - preds_b)**p, dim=(1, 2, 3))
+    return torch.mean((preds_a - preds_b) ** p, dim=(1, 2, 3))
+
 
 def main(_):
     # basic Accelerate and logging setup
@@ -57,7 +59,6 @@ def main(_):
                 config.resume_from,
                 sorted(checkpoints, key=lambda x: int(x.split("_")[-1]))[-1],
             )
-
 
     # number of timesteps within each trajectory to train on
     num_train_timesteps = int(config.sample.num_steps * config.train.timestep_fraction)
@@ -116,11 +117,11 @@ def main(_):
     )
     # switch to DDIM scheduler
     # pipeline = StableDiffusionPipeline.from_pretrained("runwayml/stable-diffusion-v1-5", revision=config.pretrained.revision)
-    pipeline_ft.scheduler.config["steps_offset"] = 1 # without adding this line there's a bug! the timestep = 0 returns logprob = nan which crashes the training
+    pipeline_ft.scheduler.config[
+        "steps_offset"
+    ] = 1  # without adding this line there's a bug! the timestep = 0 returns logprob = nan which crashes the training
     pipeline_ft.scheduler = DDIMScheduler.from_config(pipeline_ft.scheduler.config)
     pipeline_orig.scheduler = DDIMScheduler.from_config(pipeline_ft.scheduler.config)
-
-    # del pipeline     
 
     # pipeline_ft.scheduler.set_timesteps(1000)
     # pipeline_orig.scheduler.set_timesteps(1000)
@@ -271,7 +272,11 @@ def main(_):
             pipeline_ft.unet.config.sample_size,
         )
     else:
-        image_shape = (config.sample.batch_size, pipeline_ft.unet.config.in_channels, *pipeline_ft.unet.config.sample_size)
+        image_shape = (
+            config.sample.batch_size,
+            pipeline_ft.unet.config.in_channels,
+            *pipeline_ft.unet.config.sample_size,
+        )
 
     logger.info("***** Running training *****")
     logger.info(f"  Num Epochs = {config.num_epochs}")
@@ -315,7 +320,12 @@ def main(_):
         ):
             # sample
             with autocast():
-                images_adv, latents, log_probs, all_variance_noize = pipeline_with_logprob(
+                (
+                    images_adv,
+                    latents,
+                    log_probs,
+                    all_variance_noize,
+                ) = pipeline_with_logprob(
                     self=pipeline_ft,
                     noize=None,
                     num_inference_steps=config.sample.num_steps,
@@ -326,7 +336,14 @@ def main(_):
 
                 noize = latents[0]
 
-                images_orig, latents_orig, _, _, preds_orig, timesteps_preds = pipeline_with_logprob(
+                (
+                    images_orig,
+                    latents_orig,
+                    _,
+                    _,
+                    preds_orig,
+                    timesteps_preds,
+                ) = pipeline_with_logprob(
                     self=pipeline_orig,
                     noize=noize,
                     num_inference_steps=config.sample.num_steps,
@@ -381,7 +398,7 @@ def main(_):
             rewards, reward_metadata = sample["rewards"].result()
             images_diffs_l2.append(reward_metadata["images_diff_l2"])
             images_diffs_l_inf.append(reward_metadata["images_diff_l_inf"])
-            ft_labels_scores.append(reward_metadata["ft_labels_scores"])  
+            ft_labels_scores.append(reward_metadata["ft_labels_scores"])
             accuracy.append(reward_metadata["accuracy"])
             sample["rewards"] = torch.as_tensor(rewards, device=accelerator.device)
 
@@ -433,7 +450,11 @@ def main(_):
                 step=global_step,
             )
 
-        advantages = stat_tracker.update(rewards) if config.historical_normalization else (rewards - rewards.mean()) / (rewards.std() + 1e-8)
+        advantages = (
+            stat_tracker.update(rewards)
+            if config.historical_normalization
+            else (rewards - rewards.mean()) / (rewards.std() + 1e-8)
+        )
 
         # ungather advantages; we only need to keep the entries corresponding to the samples on this process
         samples["advantages"] = (
@@ -533,7 +554,10 @@ def main(_):
                         # John Schulman says that (ratio - 1) - log(ratio) is a better
                         # estimator, but most existing code uses this so...
                         # http://joschu.net/blog/kl-approx.html
-                        info["approx_kl"].append(0.5 * torch.mean((log_prob - sample["log_probs"][:, j]) ** 2))
+                        info["approx_kl"].append(
+                            0.5
+                            * torch.mean((log_prob - sample["log_probs"][:, j]) ** 2)
+                        )
                         info["clipfrac"].append(
                             torch.mean(
                                 (
@@ -553,13 +577,12 @@ def main(_):
                         optimizer.step()
                         optimizer.zero_grad()
 
-
                 #################### TRAINING DIFFUSION ##########
                 if config.diffusion_loss:
                     timesteps_preds = sample["timesteps_preds"]
                     preds_orig = sample["preds_orig"]
                     latents_orig = sample["latents_orig"]
-                    
+
                     # noisy_images, sqrt_alpha_prod, sqrt_one_minus_alpha_prod = pipeline_ft.scheduler.add_noise(images_orig_deterministic, noize, timesteps)
                     # if config.normalize_threshold:
                     #     denominator = torch.linalg.vector_norm(noize - sqrt_one_minus_alpha_prod, ord=2, dim=(1, 2, 3))/torch.linalg.vector_norm(sqrt_alpha_prod, ord=2, dim=(1, 2, 3))
@@ -568,9 +591,13 @@ def main(_):
                     Cs = config.images_diff_threshold_loss
                     with accelerator.accumulate(pipeline_ft.unet):
                         # Predict the noise residual
-                        noise_pred = pipeline_ft.unet(latents_orig, timesteps_preds, return_dict=False)[0]
+                        noise_pred = pipeline_ft.unet(
+                            latents_orig, timesteps_preds, return_dict=False
+                        )[0]
                         loss = F.mse_loss(noise_pred, preds_orig)
-                        diffusion_loss = ddpo_pytorch.rewards.hinge_loss(loss, Cs, config.images_diff_weight_loss)
+                        diffusion_loss = ddpo_pytorch.rewards.hinge_loss(
+                            loss, Cs, config.images_diff_weight_loss
+                        )
                         info["diffusion_loss"].append(diffusion_loss)
                         accelerator.backward(diffusion_loss)
 
