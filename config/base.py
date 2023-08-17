@@ -6,7 +6,7 @@ def get_config():
 
     ###### General ######
     # run name for wandb logging and checkpoint saving -- if not provided, will be auto-generated based on the datetime.
-    config.run_name = "models predictions hinge loss. score 'hinge' reward"
+    config.run_name = "models predictions higher thresh hinge loss. score 'hinge' reward"
     # random seed for reproducibility.
     config.seed = 42
     # top-level logging directory for checkpoint saving.
@@ -95,10 +95,11 @@ def get_config():
     config.images_diff_weight = 0.0
     config.images_diff_threshold = 0.0
     config.historical_normalization = False
+    config.hinge_reward = False
 
     ###### Loss Function ######
     config.images_diff_weight_loss = 1.0
-    config.images_diff_threshold_loss = 0.004
+    config.images_diff_threshold_loss = 0.001
     config.normalize_threshold = False
     config.diffusion_loss = True
 
