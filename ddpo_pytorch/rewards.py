@@ -25,9 +25,11 @@ def hinge_loss(images_distance, images_diff_threshold, images_diff_weight):
     return hinge_distance * images_diff_weight
 
 
-def l2_norm_diff(ft_images, original_images):
-    original_images_ = torch.stack([to_tensor(image) for image in original_images]).to("cuda")
-    ft_images_ = torch.stack([to_tensor(image) for image in ft_images]).to("cuda")
+def l2_norm_diff(ft_images, original_images, device):
+    original_images_ = torch.stack([to_tensor(image) for image in original_images]).to(
+        device
+    )
+    ft_images_ = torch.stack([to_tensor(image) for image in ft_images]).to(device)
 
     image_size = 1
     for dim_ in ft_images_.shape[1:]:
@@ -40,9 +42,11 @@ def l2_norm_diff(ft_images, original_images):
     return images_diff
 
 
-def l_inf_norm_diff(ft_images, original_images):
-    original_images_ = torch.stack([to_tensor(image) for image in original_images]).to("cuda")
-    ft_images_ = torch.stack([to_tensor(image) for image in ft_images]).to("cuda")
+def l_inf_norm_diff(ft_images, original_images, device):
+    original_images_ = torch.stack([to_tensor(image) for image in original_images]).to(
+        device
+    )
+    ft_images_ = torch.stack([to_tensor(image) for image in ft_images]).to(device)
 
     images_diff = torch.linalg.vector_norm(
         ft_images_ - original_images_, ord=float("inf"), dim=(1, 2, 3)
@@ -56,10 +60,10 @@ def gen_reward_fn(l_for_penalty, config, classifier: Classifier):
         with torch.no_grad():
             original_images_ = torch.stack(
                 [classifier.preprocess(image) for image in original_images]
-            ).to("cuda")
+            ).to(classifier.device)
             ft_images_ = torch.stack(
                 [classifier.preprocess(image) for image in ft_images]
-            ).to("cuda")
+            ).to(classifier.device)
             original_scores = classifier.predict(original_images_)
             labels = original_scores.argmax(dim=1)
 
@@ -81,8 +85,12 @@ def gen_reward_fn(l_for_penalty, config, classifier: Classifier):
             ft_labels = ft_scores.argmax(dim=1)
             accuracy = (ft_labels == labels).float().mean()
 
-            images_diff_l2 = l2_norm_diff(ft_images, original_images)
-            images_diff_l_inf = l_inf_norm_diff(ft_images, original_images)
+            images_diff_l2 = l2_norm_diff(
+                ft_images, original_images, device=classifier.device
+            )
+            images_diff_l_inf = l_inf_norm_diff(
+                ft_images, original_images, device=classifier.device
+            )
             images_distance = (
                 images_diff_l_inf if l_for_penalty == "l_inf" else images_diff_l2
             )
