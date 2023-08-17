@@ -94,10 +94,11 @@ def get_config():
 
     ###### Reward Function ######
     # reward function to use. see `rewards.py` for available reward functions.
-    config.reward_fn = "untargeted_l2_img_diff"
-    config.images_diff_weight = 0.0
+    config.reward_fn = "untargeted_l_inf_img_diff"
+    config.images_diff_weight = 0.5
     config.images_diff_threshold = 0.0
     config.historical_normalization = False
+    config.reward_type = "linear-reward"
 
     ###### Loss Function ######
     config.images_diff_weight_loss = 1.0

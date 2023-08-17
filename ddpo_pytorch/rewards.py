@@ -71,7 +71,7 @@ def gen_reward_fn(l_for_penalty, config, classifier: Classifier):
 
             mask = torch.ones_like(ft_scores).scatter_(1, labels.unsqueeze(1), 0.0)
             max_scores = None
-            if config.hinge_reward:
+            if config.reward_type == "hinge-reward":
                 max_scores = (
                     ft_scores[mask.bool()]
                     .view(ft_scores.shape[0], ft_scores.shape[1] - 1)
@@ -95,13 +95,15 @@ def gen_reward_fn(l_for_penalty, config, classifier: Classifier):
                 if config.images_diff_weight > 0.0
                 else 0.0
             )
-            reward = (
-                torch.minimum(
+
+            if config.reward_type == "hinge-reward":
+                reward = torch.minimum(
                     torch.zeros_like(max_scores), max_scores - ft_labels_scores - C
                 )
-                if config.hinge_reward
-                else torch.log(1 - ft_labels_scores)
-            )
+            elif config.reward_type == "log-reward":
+                reward = torch.log(1 - ft_labels_scores)
+            else:
+                reward = 1 - ft_labels_scores
             assert reward.isnan().sum() == 0
             return reward - images_penalty, {
                 "ft_labels_scores": ft_labels_scores,

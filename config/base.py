@@ -97,7 +97,7 @@ def get_config():
     config.images_diff_weight = 0.0
     config.images_diff_threshold = 0.0
     config.historical_normalization = False
-    config.hinge_reward = False
+    config.reward_type = "linear-reward"
 
     ###### Loss Function ######
     config.images_diff_weight_loss = 1.0
