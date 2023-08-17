@@ -313,3 +313,4 @@ awesome.err
 .gitignore
 .gitignore
 .vscode/launch.json
+.vscode/settings.json
