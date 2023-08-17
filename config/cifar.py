@@ -6,7 +6,7 @@ def get_config():
 
     ###### General ######
     # run name for wandb logging and checkpoint saving -- if not provided, will be auto-generated based on the datetime.
-    config.run_name = "cifar - softmaxed"
+    config.run_name = "cifar test, images_diff_weight=0.5, l inf"
 
     # The name of the dataset the model was trained on, currently in ["MNIST", "CIFAR10"].
     config.dataset = "CIFAR10"
@@ -101,7 +101,7 @@ def get_config():
     config.reward_type = "linear-reward"
 
     ###### Loss Function ######
-    config.images_diff_weight_loss = 1.0
+    config.images_diff_weight_loss = 0
     config.images_diff_threshold_loss = 0.004
     config.normalize_threshold = False
     config.diffusion_loss = True
