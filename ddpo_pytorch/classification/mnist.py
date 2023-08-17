@@ -30,6 +30,7 @@ class MnistClassifier(Classifier):
         self._net = ConvNetClassifier()
         self._net.load_state_dict(torch.load("model.pth"))
         self._net.eval()
+        self._net.to("cuda")
         self._transforms = torchvision.transforms.Compose([
             torchvision.transforms.ToTensor(),
             torchvision.transforms.Normalize((0.1307,), (0.3081,)),
