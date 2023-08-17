@@ -13,6 +13,7 @@ from diffusers import DDIMScheduler, UNet2DConditionModel
 from diffusers.loaders import AttnProcsLayers
 from diffusers.models.attention_processor import LoRAAttnProcessor
 import numpy as np
+from ddpo_pytorch.classification.factory import init_by_dataset
 import ddpo_pytorch.rewards
 from ddpo_pytorch.stat_tracking import PerPromptStatTracker
 from ddpo_pytorch.diffusers_patch.pipeline_with_logprob import pipeline_with_logprob
@@ -56,6 +57,7 @@ def main(_):
                 config.resume_from,
                 sorted(checkpoints, key=lambda x: int(x.split("_")[-1]))[-1],
             )
+
 
     # number of timesteps within each trajectory to train on
     num_train_timesteps = int(config.sample.num_steps * config.train.timestep_fraction)
@@ -235,7 +237,8 @@ def main(_):
     )
 
     # prepare reward fn
-    reward_fn = getattr(ddpo_pytorch.rewards, config.reward_fn)(config)
+    classifier = init_by_dataset(config.dataset)
+    reward_fn = getattr(ddpo_pytorch.rewards, config.reward_fn)(config, classifier)
 
     # for some reason, autocast is necessary for non-lora training but for lora training it isn't necessary and it uses
     # more memory
