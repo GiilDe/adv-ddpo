@@ -77,7 +77,9 @@ def gen_reward_fn(l_for_penalty, config):
             )  # remove useless dimensions
 
             mask = torch.ones_like(ft_scores).scatter_(1, labels.unsqueeze(1), 0.)
-            max_scores = ft_scores[mask.bool()].view(ft_scores.shape[0], ft_scores.shape[1]-1).max(dim=1)
+            max_scores = None
+            if config.hinge_reward:
+                max_scores = ft_scores[mask.bool()].view(ft_scores.shape[0], ft_scores.shape[1]-1).max(dim=1)[0]
 
             ft_labels = ft_scores.argmax(dim=1)
             accuracy = (ft_labels == labels).float().mean()
@@ -88,7 +90,9 @@ def gen_reward_fn(l_for_penalty, config):
                 images_diff_l_inf if l_for_penalty == "l_inf" else images_diff_l2
             )
             images_penalty = hinge_loss(images_distance, config.images_diff_threshold, config.images_diff_weight) if config.images_diff_weight > 0.0 else 0.0
-            return torch.maximum(0, max_scores - ft_labels_scores - C) - images_penalty, {
+            reward = torch.minimum(torch.zeros_like(max_scores), max_scores - ft_labels_scores - C) if config.hinge_reward else torch.log(1 - ft_labels_scores)
+            assert reward.isnan().sum() == 0
+            return reward - images_penalty, {
                 "ft_labels_scores": ft_labels_scores,
                 "images_diff_l2": images_diff_l2,
                 "images_diff_l_inf": images_diff_l_inf,
