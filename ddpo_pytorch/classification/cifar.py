@@ -15,7 +15,7 @@ class CifarClassifier(Classifier):
         self.pipe: ImageClassificationPipeline = pipeline(
             "image-classification", model="tzhao3/vit-CIFAR10"
         )
-        self.pipe.model.eval()
+        self.pipe.model.eval().to("cuda")
 
     def preprocess(self, pil_image) -> torch.Tensor:
         return self.pipe.preprocess(pil_image)["pixel_values"].squeeze(0)

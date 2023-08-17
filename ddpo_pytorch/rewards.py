@@ -26,8 +26,8 @@ def hinge_loss(images_distance, images_diff_threshold, images_diff_weight):
 
 
 def l2_norm_diff(ft_images, original_images):
-    original_images_ = torch.stack([to_tensor(image) for image in original_images])
-    ft_images_ = torch.stack([to_tensor(image) for image in ft_images])
+    original_images_ = torch.stack([to_tensor(image) for image in original_images]).to("cuda")
+    ft_images_ = torch.stack([to_tensor(image) for image in ft_images]).to("cuda")
 
     image_size = 1
     for dim_ in ft_images_.shape[1:]:
@@ -41,8 +41,8 @@ def l2_norm_diff(ft_images, original_images):
 
 
 def l_inf_norm_diff(ft_images, original_images):
-    original_images_ = torch.stack([to_tensor(image) for image in original_images])
-    ft_images_ = torch.stack([to_tensor(image) for image in ft_images])
+    original_images_ = torch.stack([to_tensor(image) for image in original_images]).to("cuda")
+    ft_images_ = torch.stack([to_tensor(image) for image in ft_images]).to("cuda")
 
     images_diff = torch.linalg.vector_norm(
         ft_images_ - original_images_, ord=float("inf"), dim=(1, 2, 3)
@@ -56,10 +56,10 @@ def gen_reward_fn(l_for_penalty, config, classifier: Classifier):
         with torch.no_grad():
             original_images_ = torch.stack(
                 [classifier.preprocess(image) for image in original_images]
-            )
+            ).to("cuda")
             ft_images_ = torch.stack(
                 [classifier.preprocess(image) for image in ft_images]
-            )
+            ).to("cuda")
             original_scores = classifier.predict(original_images_)
             labels = original_scores.argmax(dim=1)
 
