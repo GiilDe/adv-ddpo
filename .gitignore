@@ -314,3 +314,8 @@ awesome.err
 .gitignore
 .vscode/launch.json
 .vscode/settings.json
+
+noisy-model-test/samples/
+
+*.err
+*.out
