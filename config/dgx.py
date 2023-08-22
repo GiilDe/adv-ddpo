@@ -2,16 +2,14 @@ import ml_collections
 import imp
 import os
 
-base = imp.load_source("base", os.path.join(os.path.dirname(__file__), "base.py"))
+base = imp.load_source("base", os.path.join(os.path.dirname(__file__), "cifar.py"))
 
 
 def compressibility():
     config = base.get_config()
 
-    config.pretrained.model = "CompVis/stable-diffusion-v1-4"
-
     config.num_epochs = 100
-    config.use_lora = True
+    # config.use_lora = True
     config.save_freq = 1
     config.num_checkpoint_limit = 100000000
 
@@ -22,18 +20,6 @@ def compressibility():
     # this corresponds to (8 * 4) / (4 * 2) = 4 gradient updates per epoch.
     config.train.batch_size = 4
     config.train.gradient_accumulation_steps = 2
-
-    # prompting
-    config.prompt_fn = "imagenet_animals"
-    config.prompt_fn_kwargs = {}
-
-    # rewards
-    config.reward_fn = "jpeg_compressibility"
-
-    config.per_prompt_stat_tracking = {
-        "buffer_size": 16,
-        "min_count": 16,
-    }
 
     return config
 
@@ -47,16 +33,14 @@ def incompressibility():
 def aesthetic():
     config = compressibility()
     config.num_epochs = 200
-    config.reward_fn = "aesthetic_score"
 
     # this reward is a bit harder to optimize, so I used 2 gradient updates per epoch.
     config.train.gradient_accumulation_steps = 4
 
-    config.prompt_fn = "simple_animals"
-    config.per_prompt_stat_tracking = {
-        "buffer_size": 32,
-        "min_count": 16,
-    }
+    config.run_name = (
+        "trying original parameters from reward paper, aesthetic experiment"
+    )
+
     return config
 
 
@@ -72,21 +56,6 @@ def prompt_image_alignment():
     # again, this one is harder to optimize, so I used (8 * 6) / (4 * 6) = 2 gradient updates per epoch.
     config.train.batch_size = 4
     config.train.gradient_accumulation_steps = 6
-
-    # prompting
-    config.prompt_fn = "nouns_activities"
-    config.prompt_fn_kwargs = {
-        "nouns_file": "simple_animals.txt",
-        "activities_file": "activities.txt",
-    }
-
-    # rewards
-    config.reward_fn = "llava_bertscore"
-
-    config.per_prompt_stat_tracking = {
-        "buffer_size": 32,
-        "min_count": 16,
-    }
 
     return config
 

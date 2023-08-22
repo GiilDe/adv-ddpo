@@ -77,9 +77,9 @@ def main(_):
         # number of *samples* we accumulate across, so we need to multiply by the number of training timesteps to get
         # the total number of optimizer steps to accumulate across.
         gradient_accumulation_steps=(
-            config.train.gradient_accumulation_steps * num_train_timesteps + 1
+            config.train.gradient_accumulation_steps * (num_train_timesteps + 1)
         )
-        if config.images_diff_weight_loss > 0 # i.e using diffusion loss
+        if config.images_diff_weight_loss > 0  # i.e using diffusion loss
         else (config.train.gradient_accumulation_steps * num_train_timesteps),
     )
     if config.log and accelerator.is_main_process:
