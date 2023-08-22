@@ -417,14 +417,14 @@ def main(_):
             accelerator.log(
                 {
                     "reward_histogram": rewards,
-                    "labels_scores_histogram": ft_labels_scores,
+                    "labels_scores_histogram": ft_labels_scores.flatten(),
                     "epoch": epoch,
                     "reward_mean": rewards.mean(),
                     "reward_std": rewards.std(),
                     "images_diffs_l2_mean": images_diffs_l2.mean(),
                     "images_diffs_l_inf_mean": images_diffs_l_inf.mean(),
-                    "images_diffs_l2_histgoram": images_diffs_l2,
-                    "images_diffs_l_inf_histgoram": images_diffs_l_inf,
+                    "images_diffs_l2_histgoram": images_diffs_l2.flatten(),
+                    "images_diffs_l_inf_histgoram": images_diffs_l_inf.flatten(),
                     "accuracy_mean": accuracy,
                 },
                 step=global_step,
