@@ -6,7 +6,9 @@ def get_config():
 
     ###### General ######
     # run name for wandb logging and checkpoint saving -- if not provided, will be auto-generated based on the datetime.
-    config.run_name = "cifar test, diffusion loss, threshold 0.004"
+    config.run_name = (
+        "cifar test, diffusion loss, threshold 0.0, weight 0.001, num steps 100 exp"
+    )
 
     # The name of the dataset the model was trained on, currently in ["MNIST", "CIFAR10"].
     config.dataset = "CIFAR10"
@@ -45,14 +47,12 @@ def get_config():
     ###### Sampling ######
     config.sample = sample = ml_collections.ConfigDict()
     # number of sampler inference steps.
-    sample.num_steps = 50
+    sample.num_steps = 100
     # eta parameter for the DDIM sampler. this controls the amount of noise injected into the sampling process, with 0.0
     # being fully deterministic and 1.0 being equivalent to the DDPM sampler.
-    sample.eta = 0.2
-    # classifier-free guidance weight. 1.0 is no guidance.
-    sample.guidance_scale = 1.0
+    sample.eta = 0.7
     # batch size (per GPU!) to use for sampling.
-    sample.batch_size = 64
+    sample.batch_size = 128
     # number of batches to sample per epoch. the total number of samples per epoch is `num_batches_per_epoch *
     # batch_size * num_gpus`.
     sample.num_batches_per_epoch = 1
@@ -60,7 +60,7 @@ def get_config():
     ###### Training ######
     config.train = train = ml_collections.ConfigDict()
     # batch size (per GPU!) to use for training.
-    train.batch_size = 64
+    train.batch_size = 128
     # whether to use the 8bit Adam optimizer from bitsandbytes.
     train.use_8bit_adam = False
     # learning rate.
@@ -81,9 +81,6 @@ def get_config():
     # number of inner epochs per outer epoch. each inner epoch is one iteration through the data collected during one
     # outer epoch's round of sampling.
     train.num_inner_epochs = 1
-    # whether or not to use classifier-free guidance during training. if enabled, the same guidance scale used during
-    # sampling will be used during training.
-    train.cfg = False
     # clip advantages to the range [-adv_clip_max, adv_clip_max].
     train.adv_clip_max = 5
     # the PPO clip range.
@@ -101,10 +98,9 @@ def get_config():
     config.reward_type = "log-reward"
 
     ###### Loss Function ######
-    config.images_diff_weight_loss = 1.0
-    config.images_diff_threshold_loss = 0.004
+    config.images_diff_weight_loss = 0.001
+    config.images_diff_threshold_loss = 0  # 2e-5
     config.normalize_threshold = False
-    config.diffusion_loss = True
 
     ###### Per-Prompt Stat Tracking ######
     # when enabled, the model will track the mean and std of reward on a per-prompt basis and use that to compute

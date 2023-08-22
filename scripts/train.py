@@ -79,7 +79,7 @@ def main(_):
         gradient_accumulation_steps=(
             config.train.gradient_accumulation_steps * num_train_timesteps + 1
         )
-        if config.diffusion_loss
+        if config.images_diff_weight_loss > 0 # i.e using diffusion loss
         else (config.train.gradient_accumulation_steps * num_train_timesteps),
     )
     if config.log and accelerator.is_main_process:
@@ -473,7 +473,6 @@ def main(_):
         assert num_timesteps == config.sample.num_steps
 
         #################### TRAINING ####################
-        #################### TRAINING RL #################
         for inner_epoch in range(config.train.num_inner_epochs):
             # shuffle samples along batch dimension
             perm = torch.randperm(total_batch_size, device=accelerator.device)
@@ -512,6 +511,7 @@ def main(_):
                 position=0,
                 disable=not accelerator.is_local_main_process,
             ):
+                #################### TRAINING RL #################
                 for j in tqdm(
                     range(num_train_timesteps),
                     desc="Timestep",
@@ -578,7 +578,7 @@ def main(_):
                         optimizer.zero_grad()
 
                 #################### TRAINING DIFFUSION ##########
-                if config.diffusion_loss:
+                if config.images_diff_weight_loss > 0:
                     timesteps_preds = sample["timesteps_preds"]
                     preds_orig = sample["preds_orig"]
                     latents_orig = sample["latents_orig"]
