@@ -5,6 +5,7 @@ import torch.nn.functional as F
 
 from ddpo_pytorch.classification.classifier import Classifier
 
+
 class ConvNetClassifier(nn.Module):
     def __init__(self):
         super(ConvNetClassifier, self).__init__()
@@ -22,24 +23,24 @@ class ConvNetClassifier(nn.Module):
         x = F.dropout(x, training=self.training)
         x = self.fc2(x)
         return F.softmax(x, dim=1)
-    
+
 
 class MnistClassifier(Classifier):
-    
     def __init__(self):
         self._net = ConvNetClassifier()
         self._net.load_state_dict(torch.load("model.pth"))
         self._net.eval()
         self._net.to("cuda")
-        self._transforms = torchvision.transforms.Compose([
-            torchvision.transforms.ToTensor(),
-            torchvision.transforms.Normalize((0.1307,), (0.3081,)),
-        ])
+        self._transforms = torchvision.transforms.Compose(
+            [
+                torchvision.transforms.ToTensor(),
+                torchvision.transforms.Normalize((0.1307,), (0.3081,)),
+            ]
+        )
 
     def preprocess(self, x):
         return self._transforms(x)
-    
-    
+
     def predict(self, x):
         pred = self._net(x)
         return pred

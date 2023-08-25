@@ -5,7 +5,7 @@
 from dataclasses import dataclass
 import torch.nn.functional as F
 
-from models import DDIMPipelineGivenImage
+from models import DDIMPipelineGivenImage, DDPMPipelineGivenImage
 from diffusers import DDIMInverseScheduler, DDIMPipeline, DDIMScheduler
 import torch
 from PIL import Image
@@ -21,15 +21,41 @@ import torchvision
 
 import torch
 from ddpo_pytorch.rewards import l2_norm_diff, l_inf_norm_diff
+from art.attacks.evasion import FastGradientMethod
+from art.estimators.classification import PyTorchClassifier
+import torch.nn as nn
+from art.utils import load_mnist, load_cifar10
+from transformers.pipelines.image_classification import ImageClassificationPipeline
+from transformers import pipeline, ViTImageProcessor
+
+
+class CifarClassifier(nn.Module):
+    def __init__(self, model, processor) -> None:
+        super().__init__()
+        self.model = model
+        self.processor: ViTImageProcessor = processor
+
+    def forward(self, images) -> torch.Tensor:
+        tensor_images = self.processor.preprocess(images, return_tensors="pt")["pixel_values"].to("cuda")
+        outputs = self.model(tensor_images)
+        logits = outputs.logits
+        return logits
+
+
+pipe: ImageClassificationPipeline = pipeline(
+    "image-classification", model="tzhao3/vit-CIFAR10"
+)
+classifier_ = pipe.model
+classifier_ = CifarClassifier(classifier_, pipe.image_processor)
 
 
 @dataclass
 class TrainingConfig:
     train_batch_size = 32
-    eval_batch_size = 16  # how many images to sample during evaluation
+    eval_batch_size = 32  # how many images to sample during evaluation
     num_epochs = 50
     gradient_accumulation_steps = 1
-    learning_rate = 1e-4
+    learning_rate = 1e-5
     lr_warmup_steps = 500
     save_image_epochs = 1
     save_model_epochs = 30
@@ -38,25 +64,26 @@ class TrainingConfig:
     seed = 0
 
 
-num_steps = 50
+num_steps = 10
+# model_id = "nabdan/mnist_20_epoch"
 model_id = "google/ddpm-cifar10-32"
 
-pipeline_orig = DDIMPipelineGivenImage.from_pretrained(model_id).to("cuda")
+cuda = torch.device("cuda")
+pipeline_orig = DDIMPipelineGivenImage.from_pretrained(model_id).to(cuda)
 pipeline_orig.scheduler = DDIMScheduler.from_config(pipeline_orig.scheduler.config)
-pipeline_orig.scheduler.set_timesteps(num_steps)
+# pipeline_orig.scheduler.set_timesteps(num_steps)
 
-pipeline_noizy = DDIMPipelineGivenImage.from_pretrained(model_id).to("cuda")
-pipeline_noizy.scheduler = DDIMScheduler.from_config(pipeline_noizy.scheduler.config)
-pipeline_noizy.scheduler.set_timesteps(num_steps)
+pipeline_train = DDIMPipelineGivenImage.from_pretrained(model_id).to(cuda)
+pipeline_train.scheduler = DDIMScheduler.from_config(pipeline_train.scheduler.config)
+# pipeline_noizy.scheduler.set_timesteps(num_steps)
 
 config = TrainingConfig()
+classifier_.model.to(cuda)
 
-
-model = pipeline_noizy.unet
+model = pipeline_train.unet
 
 to_tensor = torchvision.transforms.ToTensor()
-noise_scheduler = DDIMScheduler(num_train_timesteps=50)
-timesteps = torch.LongTensor([50])
+noise_scheduler = DDIMScheduler(num_train_timesteps=1000)
 num_training_iterations = 10
 
 if isinstance(pipeline_orig.unet.config.sample_size, int):
@@ -80,6 +107,17 @@ lr_scheduler = get_cosine_schedule_with_warmup(
     num_training_steps=(num_training_iterations * config.num_epochs),
 )
 
+_, _, min_pixel_value, max_pixel_value = load_cifar10()
+criterion = nn.CrossEntropyLoss()
+classifier = PyTorchClassifier(
+    model=classifier_,
+    clip_values=(min_pixel_value, max_pixel_value),
+    loss=criterion,
+    optimizer=optimizer,
+    input_shape=image_shape,
+    nb_classes=10,
+)
+
 
 def make_grid(images, rows, cols):
     w, h = images[0].size
@@ -95,6 +133,8 @@ def evaluate(config, epoch, pipeline, postfix=None):
     images = pipeline(
         batch_size=config.eval_batch_size,
         generator=torch.manual_seed(config.seed),
+        num_inference_steps=num_steps,
+        eta=0.0,
     ).images
 
     # Make a grid out of the images
@@ -119,18 +159,20 @@ original_images = evaluate(
 )
 
 
-def evaluate_diff(images_noisy, original_images, config, epoch):
-    l2_diff = l2_norm_diff(images_noisy, original_images)
-    l_inf_diff = l_inf_norm_diff(images_noisy, original_images)
+def evaluate_diff(images_noisy, original_images, config, epoch, device):
+    l2_diff = l2_norm_diff(images_noisy, original_images, device=device)
+    l_inf_diff = l_inf_norm_diff(images_noisy, original_images, device=device)
     print(f"l2_diff: {l2_diff}")
     print(f"l_inf_diff: {l_inf_diff}")
+    print(f"l2_diff mean: {l2_diff.mean().item()}")
+    print(f"l_inf_diff mean: {l_inf_diff.mean().item()}")
 
 
 def train_loop(config, model, noise_scheduler, optimizer, lr_scheduler):
     accelerator = Accelerator(
         mixed_precision=config.mixed_precision,
         gradient_accumulation_steps=config.gradient_accumulation_steps,
-        log_with="tensorboard",
+        # log_with="wandb",
         project_dir=os.path.join(config.output_dir, "logs"),
     )
     if accelerator.is_main_process:
@@ -142,6 +184,11 @@ def train_loop(config, model, noise_scheduler, optimizer, lr_scheduler):
 
     global_step = 0
 
+    attack = FastGradientMethod(
+        estimator=classifier, eps=0.3, batch_size=config.train_batch_size
+    )
+    # img_prcoessor: ViTImageProcessor = pipe.image_processor
+
     for epoch in range(config.num_epochs):
         progress_bar = tqdm(
             total=num_training_iterations, disable=not accelerator.is_local_main_process
@@ -149,16 +196,21 @@ def train_loop(config, model, noise_scheduler, optimizer, lr_scheduler):
         progress_bar.set_description(f"Epoch {epoch}")
 
         for step in range(num_training_iterations):
-            noise = torch.randn(size=image_shape).to("cuda")
+            noise = torch.randn(size=image_shape).to(cuda)
             clean_images = pipeline_orig(
                 batch_size=config.train_batch_size,
                 num_inference_steps=num_steps,
                 image_=noise,
+                eta=0.0,
             ).images
             clean_images = torch.stack([to_tensor(image) for image in clean_images]).to(
-                "cuda"
+                cuda
             )
-            clean_images = 0.1 * torch.rand_like(clean_images) + clean_images
+            # clean_images = 0.5 * torch.rand_like(clean_images) + clean_images
+
+            # clean_images = img_prcoessor.preprocess(clean_images)
+            adversrial_images = attack.generate(clean_images.cpu().numpy())
+            adversrial_images = torch.from_numpy(adversrial_images).to(cuda)
             # Sample noise to add to the images
             bs = clean_images.shape[0]
 
@@ -172,7 +224,9 @@ def train_loop(config, model, noise_scheduler, optimizer, lr_scheduler):
 
             # Add noise to the clean images according to the noise magnitude at each timestep
             # (this is the forward diffusion process)
-            noisy_images = noise_scheduler.add_noise(clean_images, noise, timesteps)[0]
+            noisy_images = noise_scheduler.add_noise(
+                adversrial_images, noise, timesteps
+            )[0]
 
             with accelerator.accumulate(model):
                 # Predict the noise residual
@@ -200,8 +254,10 @@ def train_loop(config, model, noise_scheduler, optimizer, lr_scheduler):
             if (
                 epoch + 1
             ) % config.save_image_epochs == 0 or epoch == config.num_epochs - 1:
-                images_noisy = evaluate(config, epoch, pipeline_noizy)
-                evaluate_diff(images_noisy, original_images, epoch, config)
+                images_noisy = evaluate(config, epoch, pipeline_train)
+                evaluate_diff(
+                    images_noisy, original_images, epoch, config, clean_images.device
+                )
 
             # if (epoch + 1) % config.save_model_epochs == 0 or epoch == config.num_epochs - 1:
             #     pipeline.save_pretrained(config.output_dir)
