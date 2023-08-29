@@ -319,3 +319,4 @@ noisy-model-test/samples/
 
 *.err
 *.out
+diffusion_testing/samples/*
