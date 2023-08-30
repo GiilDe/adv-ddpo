@@ -71,7 +71,13 @@ class MnistClassifier(nn.Module):
 
 
 def evaluate_diff(
-    images_predicted, original_images, device, accelerator, global_step, classifier
+    images_predicted,
+    original_images,
+    device,
+    accelerator,
+    global_step,
+    classifier,
+    log_clean=False,
 ):
     with torch.no_grad():
         l2_diff = l2_norm_diff(images_predicted, original_images, device=device)
@@ -110,6 +116,16 @@ def evaluate_diff(
             step=global_step,
         )
 
+        if log_clean:
+            accelerator.log(
+                {
+                    "original images": [
+                        wandb.Image(image) for image in original_images
+                    ],
+                },
+                step=global_step,
+            )
+
 
 to_tensor = transforms.ToTensor()
 
@@ -120,15 +136,26 @@ class PipelineIterator:
         self._batch_size = batch_size
         self.generator = torch.Generator()
         self.length = length
+        self.counter = 0
 
     def __len__(self):
         return self.length
 
     def __next__(self):
+        if self.counter >= len(self):
+            self.counter = 0  # reset counter
+            raise StopIteration
         generator_state = self.generator.get_state()
         images = self._pipeline(
             batch_size=self._batch_size,
             generator=self.generator,
             num_inference_steps=self._pipeline.scheduler.num_inference_steps,
         ).images
-        return to_tensor(images), generator_state
+        self.counter += 1
+        return (
+            torch.stack([to_tensor(image) for image in images]).to("cuda"),
+            generator_state,
+        )
+
+    def __iter__(self):
+        return self

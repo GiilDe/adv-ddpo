@@ -26,7 +26,7 @@ logging.basicConfig(format="%(message)s", level=logging.INFO)
 @dataclass
 class TrainingConfig:
     train_batch_size = 16
-    eval_batch_size = 32
+    eval_batch_size = 16
     num_epochs = 1
     gradient_accumulation_steps = 1
     learning_rate = 1e-4
@@ -42,12 +42,14 @@ class TrainingConfig:
     diffusion_class = DDIMPipeline
     scheduler_class = DDIMScheduler
     save_images_to_disk = False
-    run_name = "adv pertrubation test, training_steps = 1000"
+    run_name = "regularization test"
     training_steps = 1000
     data_from_model = False
+    train_clean_model = False
+    regularize_using_clean_model = True
 
     def to_dict(self) -> dict:
-        return dataclasses.asdict(self)
+        return {key: str(val) for key, val in dataclasses.asdict(self).items()}
 
 
 config = TrainingConfig()
@@ -66,10 +68,9 @@ noise_scheduler = config.scheduler_class.from_pretrained(
 )
 noise_scheduler.set_timesteps(config.num_inference_steps)
 
-pipeline_frozen = DDPMPipeline.from_pretrained(model_id)
-pipeline_frozen.scheduler = config.scheduler_class.from_config(model_id)
-pipeline_frozen.scheduler.set_timesteps(config.num_inference_steps)
-
+pipeline_clean = DDPMPipeline.from_pretrained(model_id)
+pipeline_clean.scheduler.set_timesteps(config.num_inference_steps)
+model_clean = pipeline_clean.unet
 
 to_tensor = transforms.ToTensor()
 normalize = transforms.Normalize([0.5], [0.5])
@@ -86,7 +87,9 @@ train_dataloader = torch.utils.data.DataLoader(
     dataset, batch_size=config.train_batch_size, shuffle=True
 )
 if config.data_from_model:
-    train_dataloader = PipelineIterator(pipeline_frozen, config.train_batch_size, length=len(train_dataloader))
+    train_dataloader = PipelineIterator(
+        pipeline_clean, config.train_batch_size, length=500
+    )
 
 
 optimizer = torch.optim.AdamW(model.parameters(), lr=config.learning_rate)
@@ -95,6 +98,15 @@ lr_scheduler = get_cosine_schedule_with_warmup(
     num_warmup_steps=config.lr_warmup_steps,
     num_training_steps=(len(train_dataloader) * config.num_epochs),
 )
+if config.train_clean_model:
+    optimizer_clean = torch.optim.AdamW(
+        model_clean.parameters(), lr=config.learning_rate
+    )
+    lr_scheduler_clean = get_cosine_schedule_with_warmup(
+        optimizer=optimizer_clean,
+        num_warmup_steps=config.lr_warmup_steps,
+        num_training_steps=(len(train_dataloader) * config.num_epochs),
+    )
 
 
 def make_grid(images, rows, cols):
@@ -111,7 +123,7 @@ def evaluate(config, epoch, pipeline, postfix=""):
     images = pipeline(
         batch_size=config.eval_batch_size,
         generator=torch.manual_seed(config.seed),
-        num_inference_steps=pipeline.scheduler.num_inference_steps,
+        num_inference_steps=config.num_inference_steps,
     ).images
 
     if config.save_images_to_disk:
@@ -163,13 +175,21 @@ attack = FastGradientMethod(
 original_images = evaluate(
     config,
     0,
-    pipeline_frozen,
+    pipeline_clean,
     postfix="orig",
 )
 
 
 def train_loop(
-    config, model, noise_scheduler, optimizer, train_dataloader, lr_scheduler
+    config,
+    model,
+    noise_scheduler,
+    optimizer,
+    train_dataloader,
+    lr_scheduler,
+    model_clean=None,
+    optimizer_clean=None,
+    lr_scheduler_clean=None,
 ):
     accelerator = Accelerator(
         mixed_precision=config.mixed_precision,
@@ -177,10 +197,17 @@ def train_loop(
         log_with="wandb",
         project_dir=os.path.join(config.output_dir, "logs"),
     )
-    accelerator.init_trackers(
-        project_name="ddpo-pytorch-pretraining",
+    # accelerator.init_trackers(
+    #     project_name="ddpo-pytorch-pretraining",
+    #     config=config.to_dict(),
+    #     init_kwargs={"wandb": {"name": config.run_name}},
+    # )
+    wandb.init(
+        name=config.run_name,
+        # Set the project where this run will be logged
+        project="ddpo-pytorch-pretraining",
+        # Track hyperparameters and run metadata
         config=config.to_dict(),
-        init_kwargs={"wandb": {"name": config.run_name}},
     )
     if accelerator.is_main_process:
         if config.output_dir is not None:
@@ -196,12 +223,11 @@ def train_loop(
         step=global_step,
     )
 
-    model, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
-        model, optimizer, train_dataloader, lr_scheduler
+    model, model_clean, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
+        model, model_clean, optimizer, train_dataloader, lr_scheduler
     )
-
-    # to use same noise for the trained and frozen models.
-    generator = torch.Generator()
+    if config.data_from_model:
+        generator = torch.Generator()
     for epoch in range(config.num_epochs):
         progress_bar = tqdm(
             total=len(train_dataloader), disable=not accelerator.is_local_main_process
@@ -211,22 +237,23 @@ def train_loop(
         for step, batch in enumerate(train_dataloader):
             clean_images = batch["images"] if not config.data_from_model else batch[0]
             device = clean_images.device
-            if config.l_inf_noise > 0:
-                clean_images += torch.rand_like(clean_images) * config.l_inf_noise
 
-            if config.add_pertruebation:
+            if config.l_inf_noise > 0:
+                target_images = (
+                    clean_images + torch.rand_like(clean_images) * config.l_inf_noise
+                )
+            elif config.add_pertruebation:
                 adversrial_images = attack.generate(clean_images.cpu().numpy())
                 adversrial_images = torch.from_numpy(adversrial_images).to(device)
+                target_images = adversrial_images
             else:
-                adversrial_images = clean_images
+                target_images = clean_images
 
-            target_images = normalize(adversrial_images)
+            target_images = normalize(target_images)
 
             generator = (
-                torch.Generator().set_state(batch[1])
-                if config.data_from_model
-                else None
-            )
+                generator.set_state(batch[1]) if config.data_from_model else None
+            )  # generate the same noize as was inputted to the frozen model
             noise = torch.randn(target_images.shape, generator=generator).to(device)
             bs = target_images.shape[0]
 
@@ -239,10 +266,25 @@ def train_loop(
             ).long()
 
             noisy_images = noise_scheduler.add_noise(target_images, noise, timesteps)
-
+            if config.train_clean_model:
+                clean_images = normalize(clean_images)
+                noisy_non_perturbed_images = noise_scheduler.add_noise(
+                    clean_images, noise, timesteps
+                )
             with accelerator.accumulate(model):
                 noise_pred = model(noisy_images, timesteps, return_dict=False)[0]
                 loss = F.mse_loss(noise_pred, noise)
+                reg_loss = None
+                if config.regularize_using_clean_model:
+                    with torch.no_grad():
+                        model_clean_pred = model_clean(
+                            noisy_images, timesteps, return_dict=False
+                        )[0]
+                    reg_loss = F.mse_loss(
+                        noise_pred,
+                        model_clean_pred,
+                    )
+                    loss += reg_loss
                 accelerator.backward(loss)
 
                 accelerator.clip_grad_norm_(model.parameters(), 1.0)
@@ -250,32 +292,63 @@ def train_loop(
                 lr_scheduler.step()
                 optimizer.zero_grad()
 
+            if config.train_clean_model:
+                with accelerator.accumulate(model_clean):
+                    noise_pred = model_clean(
+                        noisy_non_perturbed_images, timesteps, return_dict=False
+                    )[0]
+                    loss = F.mse_loss(noise_pred, noise)
+                    accelerator.backward(loss)
+
+                    accelerator.clip_grad_norm_(model_clean.parameters(), 1.0)
+                    optimizer_clean.step()
+                    lr_scheduler_clean.step()
+                    optimizer_clean.zero_grad()
+
             progress_bar.update(1)
             logs = {
                 "loss": loss.detach().item(),
                 "lr": lr_scheduler.get_last_lr()[0],
                 "step": global_step,
             }
+            if reg_loss is not None:
+                logs["reg_loss"] = reg_loss.detach().item()
             progress_bar.set_postfix(**logs)
             accelerator.log(logs, step=global_step)
+            if config.train_clean_model:
+                accelerator.log(
+                    {"clean model loss": loss.detach().item()},
+                    step=global_step,
+                )
             global_step += 1
 
         if accelerator.is_main_process:
-            pipeline = DDPMPipeline(
+            pipeline1 = DDIMPipeline(
                 unet=accelerator.unwrap_model(model), scheduler=noise_scheduler
+            )
+            pipeline2 = DDIMPipeline(
+                unet=accelerator.unwrap_model(model_clean), scheduler=noise_scheduler
             )
 
             if (
                 epoch + 1
             ) % config.save_image_epochs == 0 or epoch == config.num_epochs - 1:
-                images_predicted = evaluate(config, epoch, pipeline)
+                images_predicted = evaluate(config, epoch, pipeline1)
+                if config.train_clean_model:
+                    original_images_ = evaluate(
+                        config, epoch, pipeline2, postfix="clean"
+                    )
+
                 evaluate_diff(
                     images_predicted,
-                    original_images,
+                    original_images
+                    if not config.train_clean_model
+                    else original_images_,
                     device,
                     accelerator,
                     global_step,
                     classifier,
+                    log_clean=config.train_clean_model,
                 )
 
             # if (
@@ -286,6 +359,19 @@ def train_loop(
 
 from accelerate import notebook_launcher
 
-args = (config, model, noise_scheduler, optimizer, train_dataloader, lr_scheduler)
+args = (
+    config,
+    model,
+    noise_scheduler,
+    optimizer,
+    train_dataloader,
+    lr_scheduler,
+    model_clean
+    if config.train_clean_model or config.regularize_using_clean_model
+    else None,
+    optimizer_clean if config.train_clean_model else None,
+    lr_scheduler_clean if config.train_clean_model else None,
+)
+
 
 notebook_launcher(train_loop, args, num_processes=1)
