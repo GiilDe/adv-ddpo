@@ -6,7 +6,7 @@ def get_config():
 
     ###### General ######
     # run name for wandb logging and checkpoint saving -- if not provided, will be auto-generated based on the datetime.
-    config.run_name = "models predictions hinge loss"
+    config.run_name = "models predictions hinge reward penaly, pretrained model test"
     # The name of the dataset the model was trained on, currently in ["MNIST", "CIFAR10"].
     config.dataset = "MNIST"
     # random seed for reproducibility.
@@ -15,7 +15,7 @@ def get_config():
     config.logdir = "logs"
     # number of epochs to train for. each epoch is one round of sampling from the model followed by training on those
     # samples.
-    config.num_epochs = 500
+    config.num_epochs = 400
     # number of epochs between saving model checkpoints.
     config.save_freq = 10000000000
     # number of checkpoints to keep before overwriting old ones.
@@ -37,7 +37,9 @@ def get_config():
     ###### Pretrained Model ######
     config.pretrained = pretrained = ml_collections.ConfigDict()
     # base model to load. either a path to a local directory, or a model name from the HuggingFace model hub.
-    pretrained.model = "nabdan/mnist_20_epoch"
+    pretrained.pipeline_original = "nabdan/mnist_20_epoch"
+    pretrained.pipeline_ft = "pretraining_output/pipeline"
+
     # revision of the model to load.
     pretrained.revision = "main"
 
@@ -94,8 +96,8 @@ def get_config():
     ###### Reward Function ######
     # reward function to use. see `rewards.py` for available reward functions.
     config.reward_fn = "untargeted_l2_img_diff"
-    config.images_diff_weight = 0.0
-    config.images_diff_threshold = 0.0
+    config.images_diff_weight = 1.0
+    config.images_diff_threshold = 0.3
     config.historical_normalization = False
     config.reward_type = "linear-reward"
 

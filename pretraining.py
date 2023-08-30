@@ -1,5 +1,4 @@
-from dataclasses import dataclass
-import dataclasses
+from dataclasses import dataclass, asdict
 from datasets import load_dataset
 from torchvision import transforms
 import torch
@@ -12,65 +11,89 @@ from diffusers import DDPMScheduler, DDIMScheduler
 from diffusers import UNet2DModel
 from pretraining_utils import MnistClassifier, PipelineIterator, evaluate_diff
 from art.utils import load_mnist
-from art.attacks.evasion import FastGradientMethod
+from art.attacks.evasion import FastGradientMethod, ZooAttack
 from art.estimators.classification import PyTorchClassifier
 import os
 import logging
 import wandb
 from accelerate import Accelerator
 from tqdm.auto import tqdm
+from ddpo_pytorch.rewards import hinge_loss
 
 logging.basicConfig(format="%(message)s", level=logging.INFO)
 
 
 @dataclass
 class TrainingConfig:
-    train_batch_size = 16
-    eval_batch_size = 16
-    num_epochs = 1
-    gradient_accumulation_steps = 1
-    learning_rate = 1e-4
-    lr_warmup_steps = 500
-    save_image_epochs = 1
-    save_model_epochs = 30
-    mixed_precision = "no"  # `no` for float32, `fp16` for automatic mixed precision
-    output_dir = "diffusion_testing"
-    seed = 0
-    l_inf_noise = 0
-    add_pertruebation = True
-    num_inference_steps = 50
-    diffusion_class = DDIMPipeline
-    scheduler_class = DDIMScheduler
-    save_images_to_disk = False
-    run_name = "regularization test"
-    training_steps = 1000
-    data_from_model = False
-    train_clean_model = False
-    regularize_using_clean_model = True
+    train_batch_size: int
+    eval_batch_size: int
+    num_epochs: int
+    gradient_accumulation_steps: int
+    learning_rate: float
+    lr_warmup_steps: int
+    save_image_epochs: int
+    save_model_epochs: int
+    mixed_precision: str  # `no` for float32, `fp16` for automatic mixed precision
+    output_dir: str
+    seed: int
+    l_inf_noise: float
+    add_pertruebation: bool
+    num_inference_steps: int
+    diffusion_class: object
+    scheduler_class: object
+    save_images_to_disk: bool
+    run_name: str
+    training_steps: int
+    data_from_model: bool
+    train_clean_model: bool
+    regularize_using_clean_model: bool
+    reg_lambda: float
+    hinge_loss_threshold: float
 
     def to_dict(self) -> dict:
-        return {key: str(val) for key, val in dataclasses.asdict(self).items()}
+        return {key: str(val) for key, val in asdict(self).items()}
 
 
-config = TrainingConfig()
+config = TrainingConfig(
+    train_batch_size=16,
+    eval_batch_size=16,
+    num_epochs=1,
+    gradient_accumulation_steps=1,
+    learning_rate=1e-4,
+    lr_warmup_steps=500,
+    save_image_epochs=1,
+    save_model_epochs=30,
+    mixed_precision="no",  # `no` for float32, `fp16` for automatic mixed precision,
+    output_dir="pretraining_output",
+    seed=0,
+    l_inf_noise=0,
+    add_pertruebation=True,
+    num_inference_steps=50,
+    diffusion_class=DDIMPipeline,
+    scheduler_class=DDIMScheduler,
+    save_images_to_disk=False,
+    run_name="reg test, model save",
+    training_steps=1000,
+    data_from_model=False,
+    train_clean_model=False,
+    regularize_using_clean_model=True,
+    reg_lambda=3,
+    hinge_loss_threshold=0.0,
+)
 
+model_id = "nabdan/mnist_20_epoch"
 
 config.dataset_name = "mnist"
 dataset = load_dataset(config.dataset_name, split="train")
 
-pipeline_train = config.diffusion_class.from_pretrained("nabdan/mnist_20_epoch")
-pipeline_train.scheduler.set_timesteps(config.num_inference_steps)
-model: UNet2DModel = pipeline_train.unet
+model = DDIMPipeline.from_pretrained(model_id).unet
 
-model_id = "nabdan/mnist_20_epoch"
 noise_scheduler = config.scheduler_class.from_pretrained(
     model_id, num_train_timesteps=config.training_steps
 )
 noise_scheduler.set_timesteps(config.num_inference_steps)
 
-pipeline_clean = DDPMPipeline.from_pretrained(model_id)
-pipeline_clean.scheduler.set_timesteps(config.num_inference_steps)
-model_clean = pipeline_clean.unet
+model_clean = DDIMPipeline.from_pretrained(model_id).unet
 
 to_tensor = transforms.ToTensor()
 normalize = transforms.Normalize([0.5], [0.5])
@@ -88,7 +111,9 @@ train_dataloader = torch.utils.data.DataLoader(
 )
 if config.data_from_model:
     train_dataloader = PipelineIterator(
-        pipeline_clean, config.train_batch_size, length=500
+        DDIMPipeline(unet=model_clean, scheduler=noise_scheduler),
+        config.train_batch_size,
+        length=500,
     )
 
 
@@ -170,12 +195,16 @@ attack = FastGradientMethod(
     eps_step=0.1,
     batch_size=config.train_batch_size,
 )
+# attack = ZooAttack(
+#     classifier=classifier_attack,
+#     batch_size=config.train_batch_size,
+# )
 
 
 original_images = evaluate(
     config,
     0,
-    pipeline_clean,
+    DDIMPipeline(unet=model_clean, scheduler=noise_scheduler),
     postfix="orig",
 )
 
@@ -197,22 +226,13 @@ def train_loop(
         log_with="wandb",
         project_dir=os.path.join(config.output_dir, "logs"),
     )
-    # accelerator.init_trackers(
-    #     project_name="ddpo-pytorch-pretraining",
-    #     config=config.to_dict(),
-    #     init_kwargs={"wandb": {"name": config.run_name}},
-    # )
-    wandb.init(
-        name=config.run_name,
-        # Set the project where this run will be logged
-        project="ddpo-pytorch-pretraining",
-        # Track hyperparameters and run metadata
+    accelerator.init_trackers(
+        project_name="ddpo-pytorch-pretraining",
         config=config.to_dict(),
+        init_kwargs={"wandb": {"name": config.run_name}},
     )
-    if accelerator.is_main_process:
-        if config.output_dir is not None:
-            os.makedirs(config.output_dir, exist_ok=True)
-        accelerator.init_trackers("train_example")
+    if config.output_dir is not None:
+        os.makedirs(config.output_dir, exist_ok=True)
 
     global_step = 0
 
@@ -265,10 +285,14 @@ def train_loop(
                 device=device,
             ).long()
 
-            noisy_images = noise_scheduler.add_noise(target_images, noise, timesteps)
+            (
+                noisy_images,
+                sqrt_alpha_prod,
+                sqrt_one_minus_alpha_prod,
+            ) = noise_scheduler.add_noise(target_images, noise, timesteps)
             if config.train_clean_model:
                 clean_images = normalize(clean_images)
-                noisy_non_perturbed_images = noise_scheduler.add_noise(
+                noisy_non_perturbed_images, _, _ = noise_scheduler.add_noise(
                     clean_images, noise, timesteps
                 )
             with accelerator.accumulate(model):
@@ -283,7 +307,24 @@ def train_loop(
                     reg_loss = F.mse_loss(
                         noise_pred,
                         model_clean_pred,
+                        reduce=not (config.hinge_loss_threshold > 0),
                     )
+
+                    if config.hinge_loss_threshold > 0:
+                        normalization = torch.clamp(
+                            input=(sqrt_one_minus_alpha_prod / sqrt_alpha_prod) ** 2,
+                            min=None,
+                            max=50,
+                        )
+                        reg_loss = normalization * reg_loss
+                        reg_loss = hinge_loss(
+                            reg_loss,
+                            config.hinge_loss_threshold,
+                            1.0,
+                        )
+                        reg_loss = reg_loss.mean()
+
+                    reg_loss = config.reg_lambda * reg_loss
                     loss += reg_loss
                 accelerator.backward(loss)
 
@@ -323,20 +364,20 @@ def train_loop(
             global_step += 1
 
         if accelerator.is_main_process:
-            pipeline1 = DDIMPipeline(
+            pipeline_train = DDIMPipeline(
                 unet=accelerator.unwrap_model(model), scheduler=noise_scheduler
             )
-            pipeline2 = DDIMPipeline(
+            pipeline_clean = DDIMPipeline(
                 unet=accelerator.unwrap_model(model_clean), scheduler=noise_scheduler
             )
 
             if (
                 epoch + 1
             ) % config.save_image_epochs == 0 or epoch == config.num_epochs - 1:
-                images_predicted = evaluate(config, epoch, pipeline1)
+                images_predicted = evaluate(config, epoch, pipeline_train)
                 if config.train_clean_model:
                     original_images_ = evaluate(
-                        config, epoch, pipeline2, postfix="clean"
+                        config, epoch, pipeline_clean, postfix="clean"
                     )
 
                 evaluate_diff(
@@ -351,10 +392,12 @@ def train_loop(
                     log_clean=config.train_clean_model,
                 )
 
-            # if (
-            #     epoch + 1
-            # ) % config.save_model_epochs == 0 or epoch == config.num_epochs - 1:
-            # pipeline_train.save_pretrained(config.output_dir)
+            if (
+                epoch + 1
+            ) % config.save_model_epochs == 0 or epoch == config.num_epochs - 1:
+                pipeline_train.save_pretrained(
+                    os.path.join(config.output_dir, "pipeline")
+                )
 
 
 from accelerate import notebook_launcher

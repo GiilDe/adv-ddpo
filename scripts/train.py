@@ -95,10 +95,10 @@ def main(_):
 
     # load scheduler and models.
     pipeline_ft = DDIMPipelineGivenImage.from_pretrained(
-        config.pretrained.model, revision=config.pretrained.revision
+        config.pretrained.pipeline_ft or config.pretrained.pipeline_original, revision=config.pretrained.revision
     )
     pipeline_orig = DDIMPipelineGivenImage.from_pretrained(
-        config.pretrained.model, revision=config.pretrained.revision
+        config.pretrained.pipeline_original, revision=config.pretrained.revision
     )
     pipeline_orig = pipeline_orig.to(accelerator.device)
     pipeline_orig.unet.eval()
@@ -182,7 +182,7 @@ def main(_):
         if config.use_lora and isinstance(models[0], AttnProcsLayers):
             # pipeline.unet.load_attn_procs(input_dir)
             tmp_unet = UNet2DConditionModel.from_pretrained(
-                config.pretrained.model,
+                config.pretrained.pipeline_ft,
                 revision=config.pretrained.revision,
                 subfolder="unet",
             )

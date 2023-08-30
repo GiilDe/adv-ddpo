@@ -6,9 +6,7 @@ def get_config():
 
     ###### General ######
     # run name for wandb logging and checkpoint saving -- if not provided, will be auto-generated based on the datetime.
-    config.run_name = (
-        "cifar test, diffusion loss, threshold 0.0, weight 0.001, num steps 100 exp"
-    )
+    config.run_name = "cifar test, diffusion loss, threshold 0.0, weight 0.001, num updates=2, eps 1e-4"
 
     # The name of the dataset the model was trained on, currently in ["MNIST", "CIFAR10"].
     config.dataset = "CIFAR10"
@@ -40,7 +38,8 @@ def get_config():
     ###### Pretrained Model ######
     config.pretrained = pretrained = ml_collections.ConfigDict()
     # base model to load. either a path to a local directory, or a model name from the HuggingFace model hub.
-    pretrained.model = "google/ddpm-cifar10-32"
+    pretrained.pipeline_original = "google/ddpm-cifar10-32"
+    pretrained.pipeline_ft = ""
     # revision of the model to load.
     pretrained.revision = "main"
 
@@ -50,7 +49,7 @@ def get_config():
     sample.num_steps = 50
     # eta parameter for the DDIM sampler. this controls the amount of noise injected into the sampling process, with 0.0
     # being fully deterministic and 1.0 being equivalent to the DDPM sampler.
-    sample.eta = 0.7
+    sample.eta = 1.0
     # batch size (per GPU!) to use for sampling.
     sample.batch_size = 128
     # number of batches to sample per epoch. the total number of samples per epoch is `num_batches_per_epoch *
@@ -60,7 +59,7 @@ def get_config():
     ###### Training ######
     config.train = train = ml_collections.ConfigDict()
     # batch size (per GPU!) to use for training.
-    train.batch_size = 128
+    train.batch_size = 64
     # whether to use the 8bit Adam optimizer from bitsandbytes.
     train.use_8bit_adam = False
     # learning rate.
@@ -70,7 +69,7 @@ def get_config():
     # Adam beta2.
     train.adam_beta2 = 0.999
     # Adam weight decay.
-    train.adam_weight_decay = 1e-4
+    train.adam_weight_decay = 0.0
     # Adam epsilon.
     train.adam_epsilon = 1e-8
     # number of gradient accumulation steps. the effective batch size is `batch_size * num_gpus *
@@ -84,7 +83,7 @@ def get_config():
     # clip advantages to the range [-adv_clip_max, adv_clip_max].
     train.adv_clip_max = 5
     # the PPO clip range.
-    train.clip_range = 0.000001
+    train.clip_range = 0.0001
     # the fraction of timesteps to train on. if set to less than 1.0, the model will be trained on a subset of the
     # timesteps for each sample. this will speed up training but reduce the accuracy of policy gradient estimates.
     train.timestep_fraction = 1.0
