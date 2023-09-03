@@ -63,7 +63,6 @@ class MnistClassifier(nn.Module):
             return torch.stack([self._transforms_tensor(image) for image in x]).to(cuda)
 
         return self._transforms(x)
-        return x
 
     def forward(self, x):
         pred = self._net(x)
@@ -78,6 +77,8 @@ def evaluate_diff(
     global_step,
     classifier,
     log_clean=False,
+    labels=None,
+    predicted_text="predicted pertrubed images",
 ):
     with torch.no_grad():
         l2_diff = l2_norm_diff(images_predicted, original_images, device=device)
@@ -87,8 +88,9 @@ def evaluate_diff(
         logging.info(f"l2_diff mean: {l2_diff.mean().item()}")
         logging.info(f"l_inf_diff mean: {l_inf_diff.mean().item()}")
 
-        original_scores = classifier.forward(classifier.preprocess(original_images))
-        labels = original_scores.argmax(dim=1)
+        if labels is not None:
+            original_scores = classifier.forward(classifier.preprocess(original_images))
+            labels = original_scores.argmax(dim=1)
 
         ft_scores = classifier.forward(classifier.preprocess(images_predicted))
         ft_labels = ft_scores.argmax(dim=1)
@@ -109,9 +111,7 @@ def evaluate_diff(
 
         accelerator.log(
             {
-                "predicted pertrubed images": [
-                    wandb.Image(image) for image in images_predicted
-                ],
+                predicted_text: [wandb.Image(image) for image in images_predicted],
             },
             step=global_step,
         )
@@ -125,6 +125,57 @@ def evaluate_diff(
                 },
                 step=global_step,
             )
+
+
+def evaluate_diff_algo(
+    images_predicted,
+    original_images,
+    device,
+    accelerator,
+    global_step,
+    classifier,
+    labels,
+):
+    with torch.no_grad():
+        l2_diff = l2_norm_diff(images_predicted, original_images, device=device)
+        l_inf_diff = l_inf_norm_diff(images_predicted, original_images, device=device)
+        logging.info(f"l2_diff_algo: {l2_diff}")
+        logging.info(f"l_inf_diff_algo: {l_inf_diff}")
+        logging.info(f"l2_diff mean_algo: {l2_diff.mean().item()}")
+        logging.info(f"l_inf_diff mean_algo: {l_inf_diff.mean().item()}")
+
+        ft_scores = classifier.forward(classifier.preprocess(images_predicted))
+        ft_labels = ft_scores.argmax(dim=1)
+        accuracy = (ft_labels == labels).float().mean()
+        logging.info(f"accuracy: {accuracy.item()}")
+
+        accelerator.log(
+            {
+                "l2_diff_algo": l2_diff.mean().item(),
+                "l_inf_diff_algo": l_inf_diff.mean().item(),
+                "step": global_step,
+                "l_inf_diff_hist_algo": l_inf_diff.flatten(),
+                "l2_diff_hist_algo": l2_diff.flatten(),
+                "accuracy_algo": accuracy.item(),
+            },
+            step=global_step,
+        )
+
+        accelerator.log(
+            {
+                "algo pertrubed images": [
+                    wandb.Image(image) for image in images_predicted
+                ],
+            },
+            step=global_step,
+        )
+
+        accelerator.log(
+            {
+                "clean images": [wandb.Image(image) for image in original_images],
+            },
+            step=global_step,
+        )
 
 
 to_tensor = transforms.ToTensor()

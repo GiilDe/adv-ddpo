@@ -9,7 +9,12 @@ from diffusers.optimization import get_cosine_schedule_with_warmup
 from PIL import Image
 from diffusers import DDPMScheduler, DDIMScheduler
 from diffusers import UNet2DModel
-from pretraining_utils import MnistClassifier, PipelineIterator, evaluate_diff
+from pretraining_utils import (
+    MnistClassifier,
+    PipelineIterator,
+    evaluate_diff,
+    evaluate_diff_algo,
+)
 from art.utils import load_mnist
 from art.attacks.evasion import FastGradientMethod, ZooAttack
 from art.estimators.classification import PyTorchClassifier
@@ -49,6 +54,8 @@ class TrainingConfig:
     regularize_using_clean_model: bool
     reg_lambda: float
     hinge_loss_threshold: float
+    data_length: int
+    labels_from_data: bool
 
     def to_dict(self) -> dict:
         return {key: str(val) for key, val in asdict(self).items()}
@@ -68,17 +75,19 @@ config = TrainingConfig(
     seed=0,
     l_inf_noise=0,
     add_pertruebation=True,
-    num_inference_steps=50,
+    num_inference_steps=2,
     diffusion_class=DDIMPipeline,
     scheduler_class=DDIMScheduler,
     save_images_to_disk=False,
-    run_name="reg test, model save",
+    run_name="ZOO test",
     training_steps=1000,
     data_from_model=False,
     train_clean_model=False,
     regularize_using_clean_model=True,
     reg_lambda=3,
     hinge_loss_threshold=0.0,
+    data_length=3,
+    labels_from_data=True,
 )
 
 model_id = "nabdan/mnist_20_epoch"
@@ -101,11 +110,11 @@ normalize = transforms.Normalize([0.5], [0.5])
 
 def transform(examples):
     images = [to_tensor(image.convert("L")) for image in examples["image"]]
-    return {"images": images}
+    return {"images": images, "labels": examples["label"]}
 
 
 dataset.set_transform(transform)
-
+dataset = dataset.select(range(config.data_length))
 train_dataloader = torch.utils.data.DataLoader(
     dataset, batch_size=config.train_batch_size, shuffle=True
 )
@@ -140,6 +149,12 @@ def make_grid(images, rows, cols):
     for i, image in enumerate(images):
         grid.paste(image, box=(i % cols * w, i // cols * h))
     return grid
+
+
+def to_pil(images):
+    images = images.cpu().permute(0, 2, 3, 1).numpy()
+    images = DDIMPipeline.numpy_to_pil(images)
+    return images
 
 
 def evaluate(config, epoch, pipeline, postfix=""):
@@ -178,7 +193,7 @@ else:
         *model.config.sample_size,
     )
 
-_, _, min_pixel_value, max_pixel_value = load_mnist()
+(x_train, y_train), (x_test, y_test), min_pixel_value, max_pixel_value = load_mnist()
 criterion = torch.nn.CrossEntropyLoss()
 classifier = MnistClassifier()
 classifier_attack = PyTorchClassifier(
@@ -186,19 +201,31 @@ classifier_attack = PyTorchClassifier(
     clip_values=(min_pixel_value, max_pixel_value),
     loss=criterion,
     optimizer=optimizer,
-    input_shape=image_shape,
+    input_shape=image_shape[1:],
     nb_classes=10,
+    channels_first=True,
 )
-attack = FastGradientMethod(
-    estimator=classifier_attack,
-    eps=0.3,
-    eps_step=0.1,
-    batch_size=config.train_batch_size,
-)
-# attack = ZooAttack(
-#     classifier=classifier_attack,
+# attack = FastGradientMethod(
+#     estimator=classifier_attack,
+#     eps=0.3,
+#     eps_step=0.1,
 #     batch_size=config.train_batch_size,
 # )
+attack = ZooAttack(
+    classifier=classifier_attack,
+    confidence=0.0,
+    targeted=False,
+    # learning_rate=1e-1,
+    max_iter=1,
+    # binary_search_steps=10,
+    # initial_const=1e-3,
+    # abort_early=True,
+    # use_resize=False,
+    # use_importance=False,
+    # nb_parallel=5,
+    # batch_size=1,
+    # variable_h=0.01,
+)
 
 
 original_images = evaluate(
@@ -223,7 +250,7 @@ def train_loop(
     accelerator = Accelerator(
         mixed_precision=config.mixed_precision,
         gradient_accumulation_steps=config.gradient_accumulation_steps,
-        log_with="wandb",
+        # log_with="wandb",
         project_dir=os.path.join(config.output_dir, "logs"),
     )
     accelerator.init_trackers(
@@ -266,6 +293,16 @@ def train_loop(
                 adversrial_images = attack.generate(clean_images.cpu().numpy())
                 adversrial_images = torch.from_numpy(adversrial_images).to(device)
                 target_images = adversrial_images
+                if global_step == 0:
+                    evaluate_diff_algo(
+                        to_pil(adversrial_images),
+                        to_pil(clean_images),
+                        device,
+                        accelerator,
+                        global_step,
+                        classifier,
+                        labels=batch["labels"],
+                    )
             else:
                 target_images = clean_images
 
@@ -390,13 +427,14 @@ def train_loop(
                     global_step,
                     classifier,
                     log_clean=config.train_clean_model,
+                    labels=batch["labels"] if config.labels_from_data else None,
                 )
 
             if (
                 epoch + 1
             ) % config.save_model_epochs == 0 or epoch == config.num_epochs - 1:
                 pipeline_train.save_pretrained(
-                    os.path.join(config.output_dir, "pipeline")
+                    os.path.join(config.output_dir, config.run_name)
                 )
 
 

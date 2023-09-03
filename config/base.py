@@ -6,7 +6,7 @@ def get_config():
 
     ###### General ######
     # run name for wandb logging and checkpoint saving -- if not provided, will be auto-generated based on the datetime.
-    config.run_name = "models predictions hinge reward penaly, pretrained model test"
+    config.run_name = "models predictions hinge reward penaly, pretrained model"
     # The name of the dataset the model was trained on, currently in ["MNIST", "CIFAR10"].
     config.dataset = "MNIST"
     # random seed for reproducibility.
@@ -102,10 +102,9 @@ def get_config():
     config.reward_type = "linear-reward"
 
     ###### Loss Function ######
-    config.images_diff_weight_loss = 1.0
+    config.images_diff_weight_loss = 0.0
     config.images_diff_threshold_loss = 0.001
     config.normalize_threshold = False
-    config.diffusion_loss = True
 
     ###### Per-Prompt Stat Tracking ######
     # when enabled, the model will track the mean and std of reward on a per-prompt basis and use that to compute
