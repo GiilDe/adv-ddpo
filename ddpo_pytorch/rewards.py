@@ -31,13 +31,8 @@ def l2_norm_diff(ft_images, original_images, device):
     )
     ft_images_ = torch.stack([to_tensor(image) for image in ft_images]).to(device)
 
-    image_size = 1
-    for dim_ in ft_images_.shape[1:]:
-        image_size *= dim_
-
     images_diff = (
         torch.linalg.vector_norm(ft_images_ - original_images_, ord=2, dim=(1, 2, 3))
-        / image_size
     )
     return images_diff
 
@@ -69,6 +64,7 @@ def gen_reward_fn(l_for_penalty, config, classifier: Classifier):
 
             ft_scores = classifier.predict(ft_images_)
             ft_labels_scores = torch.gather(ft_scores, 1, labels.unsqueeze(1))
+            adv_label_scores = get_adv_label_scores(labels, ft_scores)
             ft_labels_scores = ft_labels_scores.reshape(
                 len(ft_images)
             )  # remove useless dimensions
@@ -133,3 +129,9 @@ def untargeted_l_inf_img_diff(config, classifier):
 
 def sigmoid(x):
     return 1 / (1 + np.exp(-x))
+
+
+def get_adv_label_scores(labels, ft_scores):
+    top_two_scores = torch.topk(ft_scores, k=2, sorted=True)
+    different_from_org_label_ind = (top_two_scores.indices - labels.unsqueeze(1)).abs().max(dim=1).indices
+    return torch.gather(top_two_scores.values, 1, different_from_org_label_ind.unsqueeze(1)).reshape([-1])
