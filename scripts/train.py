@@ -13,18 +13,23 @@ from diffusers import DDIMScheduler, UNet2DConditionModel
 from diffusers.loaders import AttnProcsLayers
 from diffusers.models.attention_processor import LoRAAttnProcessor
 import numpy as np
+from data.inversion_loader import load_inversion_data
 from ddpo_pytorch.classification.factory import init_by_dataset
+from ddpo_pytorch.inversion.ddim_inversion import DDIMInversion
 import ddpo_pytorch.rewards
 from ddpo_pytorch.stat_tracking import PerPromptStatTracker
 from ddpo_pytorch.diffusers_patch.pipeline_with_logprob import pipeline_with_logprob
 from ddpo_pytorch.diffusers_patch.ddim_with_logprob import ddim_step_with_logprob
 import torch
+import numpy as np
 import wandb
 from functools import partial
 import tqdm
 import torch.nn.functional as F
 import torchvision
 from models import DDIMPipelineGivenImage
+from ddpo_pytorch.classification.factory import init_by_dataset
+from utils import create_comparison_img, normalize_to_unit_interval, normalized_tensor_to_pil
 
 tqdm = partial(tqdm.tqdm, dynamic_ncols=True)
 
@@ -122,6 +127,9 @@ def main(_):
     ] = 1  # without adding this line there's a bug! the timestep = 0 returns logprob = nan which crashes the training
     pipeline_ft.scheduler = DDIMScheduler.from_config(pipeline_ft.scheduler.config)
     pipeline_orig.scheduler = DDIMScheduler.from_config(pipeline_ft.scheduler.config)
+    inversion_pipe_ft = DDIMInversion(pipeline_ft.unet, pipeline_ft.scheduler, 300, pipeline_ft.progress_bar)
+    inversion_pipe_org = DDIMInversion(pipeline_orig.unet, pipeline_orig.scheduler, 300, inversion_pipe_org.progress_bar)
+    classifier = init_by_dataset(config.dataset)
 
     # pipeline_ft.scheduler.set_timesteps(1000)
     # pipeline_orig.scheduler.set_timesteps(1000)
@@ -318,6 +326,108 @@ def main(_):
             disable=not accelerator.is_local_main_process,
             position=0,
         ):
+            
+            if epoch % config.evaluation_freq == 0 and accelerator.is_main_process:
+                with torch.no_grad():
+                    inversion_pipe_ft.model.eval()
+                    inversion_pipe_org.model.eval()
+
+                    l2_diff = []
+                    l2_diff_recon = []
+                    linf_diff = []
+                    linf_diff_recon = []
+                    img_acc = []
+                    adv_acc = []
+                    recon_acc = []
+
+                    for i in range(config.num_eval_batches):
+                        images, labels, latents = load_inversion_data(config.latents_dir, i)
+                        adv_images = inversion_pipe_ft.ddim_loop(latents, is_forward=False, num_ddim_steps=config.sample.num_steps)
+                        recon = inversion_pipe_org.ddim_loop(latents, is_forward=False, num_ddim_steps=config.sample.num_steps)
+
+                        images = normalize_to_unit_interval(images)
+                        adv_images = normalize_to_unit_interval(adv_images)
+                        recon = normalize_to_unit_interval(recon)
+
+                        diff = torch.flatten(images - adv_images, start_dim=1)
+                        batch_l2_diff = torch.linalg.norm(diff, dim=1, ord=2)
+                        batch_linf_diff = torch.linalg.norm(diff, dim=1, ord=float('inf'))
+                        l2_diff = np.concatenate((l2_diff, batch_l2_diff.cpu().numpy()))
+                        linf_diff = np.concatenate((linf_diff, batch_linf_diff.cpu().numpy()))
+
+                        diff_recon = torch.flatten(images - recon, start_dim=1)
+                        batch_l2_diff_recon = torch.linalg.norm(diff_recon, dim=1, ord=2)
+                        batch_linf_diff_recon = torch.linalg.norm(diff_recon, dim=1, ord=float('inf'))
+                        l2_diff_recon = np.concatenate((l2_diff_recon, batch_l2_diff_recon.cpu().numpy()))
+                        linf_diff_recon = np.concatenate((linf_diff_recon, batch_linf_diff_recon.cpu().numpy()))
+
+                        # # proccessed_img = classifier.precprocess_tensor(images).to(accelerator.device)
+                        # proccessed_img = torch.stack( 
+                        #     [classifier.preprocess(normalized_tensor_to_pil(image)[0]) for image in images]
+                        # ).to(classifier.device)
+                        # img_pred = classifier.predict(proccessed_img)
+                        # img_acc_batch = (img_pred.argmax(dim=1) == labels).float().cpu().numpy()
+                        # img_acc = np.concatenate((img_acc, img_acc_batch))
+
+                        proccessed_adv = torch.stack( 
+                            [classifier.preprocess(normalized_tensor_to_pil(image)[0]) for image in adv_images]
+                        ).to(classifier.device)
+                        adv_pred = classifier.predict(proccessed_adv).to(accelerator.device)
+                        adv_acc_batch = (adv_pred.argmax(dim=1) == labels).float().cpu().numpy()
+                        adv_acc = np.concatenate((adv_acc, adv_acc_batch))
+
+                        proccessed_rec = torch.stack( 
+                            [classifier.preprocess(normalized_tensor_to_pil(image)[0]) for image in recon]
+                        ).to(classifier.device)
+                        rec_pred = classifier.predict(proccessed_rec).to(accelerator.device)
+                        rec_acc_batch = (rec_pred.argmax(dim=1) == labels).float().cpu().numpy()
+                        recon_acc = np.concatenate((recon_acc, rec_acc_batch))
+
+                    
+                    # log rewards and images
+                    if config.log:
+                        accelerator.log(
+                            {
+                                "org_adv_l2": l2_diff.mean(),
+                                "org_adv_linf": linf_diff.mean(),
+                                "org_recon_l2": l2_diff_recon.mean(),
+                                "org_recon_linf": linf_diff_recon.mean(),
+                                # "benign_acc": img_acc.mean(),
+                                "adv_acc": adv_acc.mean(),
+                                "recon_acc": recon_acc.mean()
+                            },
+                            step=epoch,
+                        )
+                        accelerator.log(
+                            {
+                                "Original": [
+                                    wandb.Image(images[j],
+                                                caption=f"l2 diff: {batch_l2_diff[j]:.2f} \n l_inf diff: {batch_linf_diff[j]:.2f}")
+                                    for j in range(0,16)
+                                ],
+                            },
+                            step=epoch,
+                        )
+                        accelerator.log(
+                            {
+                                "Adverserial": [
+                                    wandb.Image(adv_images[j],
+                                                caption=f"l2 diff: {batch_l2_diff[j]:.2f} \n l_inf diff: {batch_linf_diff[j]:.2f}")
+                                    for j in range(0,16)
+                                ],
+                            },
+                            step=epoch,
+                        )
+                        accelerator.log(
+                            {
+                                "Recon": [
+                                    wandb.Image(recon[j],
+                                                caption=f"l2 diff: {batch_l2_diff_recon[j]:.2f} \n l_inf diff: {batch_linf_diff_recon[j]:.2f}")
+                                    for j in range(0,16)
+                                ],
+                            },
+                            step=epoch,
+                        )
             # sample
             with autocast():
                 (
