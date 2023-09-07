@@ -6,7 +6,7 @@ def get_config():
 
     ###### General ######
     # run name for wandb logging and checkpoint saving -- if not provided, will be auto-generated based on the datetime.
-    config.run_name = "cifar test, diffusion loss, threshold 0.0, weight 0.001, num updates=2, eps 1e-4"
+    config.run_name = "cifar test, diffusion loss"
 
     # The name of the dataset the model was trained on, currently in ["MNIST", "CIFAR10"].
     config.dataset = "CIFAR10"
@@ -16,7 +16,7 @@ def get_config():
     config.logdir = "logs"
     # number of epochs to train for. each epoch is one round of sampling from the model followed by training on those
     # samples.
-    config.num_epochs = 500
+    config.num_epochs = 300
     # number of epochs between saving model checkpoints.
     config.save_freq = 10000000000
     # number of checkpoints to keep before overwriting old ones.
@@ -92,12 +92,12 @@ def get_config():
     # reward function to use. see `rewards.py` for available reward functions.
     config.reward_fn = "untargeted_l_inf_img_diff"
     config.images_diff_weight = 0.0
-    config.images_diff_threshold = 0.0
+    config.images_diff_threshold = 0.3
     config.historical_normalization = False
-    config.reward_type = "log-reward"
+    config.reward_type = "linear-reward"
 
     ###### Loss Function ######
-    config.images_diff_weight_loss = 0.001
+    config.images_diff_weight_loss = 0.0
     config.images_diff_threshold_loss = 0  # 2e-5
     config.normalize_threshold = False
 
