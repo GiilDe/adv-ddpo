@@ -320,3 +320,9 @@ noisy-model-test/samples/
 *.err
 *.out
 diffusion_testing/samples/*
+
+### data
+torchvision_data/
+
+###
+slurm/
