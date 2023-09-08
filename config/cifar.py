@@ -6,7 +6,7 @@ def get_config():
 
     ###### General ######
     # run name for wandb logging and checkpoint saving -- if not provided, will be auto-generated based on the datetime.
-    config.run_name = "cifar test, diffusion loss, threshold 0.0, weight 0.001, num updates=2, eps 1e-4"
+    config.run_name = "cifar test, diffusion loss"
 
     # The name of the dataset the model was trained on, currently in ["MNIST", "CIFAR10"].
     config.dataset = "CIFAR10"
@@ -16,9 +16,9 @@ def get_config():
     config.logdir = "logs"
     # number of epochs to train for. each epoch is one round of sampling from the model followed by training on those
     # samples.
-    config.num_epochs = 500
+    config.num_epochs = 300
     # number of epochs between saving model checkpoints.
-    config.save_freq = 10000000000
+    config.save_freq = 10
     # number of checkpoints to keep before overwriting old ones.
     config.num_checkpoint_limit = 5
     # mixed precision training. options are "fp16", "bf16", and "no". half-precision speeds up training significantly.
@@ -46,7 +46,7 @@ def get_config():
     ###### Sampling ######
     config.sample = sample = ml_collections.ConfigDict()
     # number of sampler inference steps.
-    sample.num_steps = 50
+    sample.num_steps = 150
     # eta parameter for the DDIM sampler. this controls the amount of noise injected into the sampling process, with 0.0
     # being fully deterministic and 1.0 being equivalent to the DDPM sampler.
     sample.eta = 1.0
@@ -79,7 +79,7 @@ def get_config():
     train.max_grad_norm = 1.0
     # number of inner epochs per outer epoch. each inner epoch is one iteration through the data collected during one
     # outer epoch's round of sampling.
-    train.num_inner_epochs = 1
+    train.num_inner_epochs = 2
     # clip advantages to the range [-adv_clip_max, adv_clip_max].
     train.adv_clip_max = 5
     # the PPO clip range.
@@ -92,12 +92,12 @@ def get_config():
     # reward function to use. see `rewards.py` for available reward functions.
     config.reward_fn = "untargeted_l_inf_img_diff"
     config.images_diff_weight = 0.0
-    config.images_diff_threshold = 0.0
+    config.images_diff_threshold = 0.3
     config.historical_normalization = False
-    config.reward_type = "log-reward"
+    config.reward_type = "linear-reward"
 
     ###### Loss Function ######
-    config.images_diff_weight_loss = 0.001
+    config.images_diff_weight_loss = 0.0
     config.images_diff_threshold_loss = 0  # 2e-5
     config.normalize_threshold = False
 
@@ -113,10 +113,9 @@ def get_config():
     config.stat_tracking.min_count = 16
 
     ### Evaluation ###
-    config.evaluation_freq = 5
-    config.num_eval_batches = 2
+    config.evaluation_freq = 3
+    config.num_eval_batches = 1
     config.latents_dir = 'latents_cache'
-
     config.log = True
 
     return config

@@ -3,7 +3,6 @@ import torch
 import numpy as np
 import PIL
 
-from models import DDIMPipelineGivenImage, MnistClassifier
 import torchvision
 
 
@@ -23,21 +22,21 @@ import torchvision
 #     shuffle=False,
 # )
 
-mnist_pil_to_tensor = torchvision.transforms.Compose(
-    [
-        torchvision.transforms.ToTensor(),
-        torchvision.transforms.Normalize((0.1307,), (0.3081,)),
-    ]
-)
+# mnist_pil_to_tensor = torchvision.transforms.Compose(
+#     [
+#         torchvision.transforms.ToTensor(),
+#         torchvision.transforms.Normalize((0.1307,), (0.3081,)),
+#     ]
+# )
 
-data = PIL.Image.open("image_after_inv.png")
+# data = PIL.Image.open("image_after_inv.png")
 
-data = mnist_pil_to_tensor(data)
+# data = mnist_pil_to_tensor(data)
 
-data = data.unsqueeze(0)
+# data = data.unsqueeze(0)
 
-num_steps = 200
-model_id = "nabdan/mnist_20_epoch"
+# num_steps = 200
+# model_id = "nabdan/mnist_20_epoch"
 # model_id = "google/ddpm-cifar10-32"
 
 # pipeline = DDIMPipeline.from_pretrained(model_id)
@@ -78,10 +77,11 @@ model_id = "nabdan/mnist_20_epoch"
 # image_after_inv = pipeline_after_inv(image_=image_inv_tensor, num_inference_steps=50).images[0]
 # image_after_inv.save("image_after_inv.png")
 
-mnist_classifier = MnistClassifier()
-mnist_classifier.load_state_dict(torch.load("model.pth"))
-mnist_classifier.eval()
+gen1 = torch.Generator()
+state = gen1.get_state()
+pipeline1(num_inference_steps=num_steps,generator=gen1).images[0]
+gen1.set_state(state)
+pipeline2(num_inference_steps=num_steps,generator=gen1).images[0]
 
-pred = mnist_classifier(data)
-print(pred)
-print(torch.argmax(pred))
+
+

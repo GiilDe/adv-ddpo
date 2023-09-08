@@ -63,7 +63,7 @@ def get_config():
 
     ### Inversion #####
     config.num_inversion_steps = 300
-    config.save_latents = False
+    config.save_latents = True
     config.latent_save_dir = 'latents_cache'
 
     config.log = True

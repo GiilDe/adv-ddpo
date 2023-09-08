@@ -69,13 +69,13 @@ config = TrainingConfig(
     learning_rate=1e-4,
     lr_warmup_steps=500,
     save_image_epochs=1,
-    save_model_epochs=30,
+    save_model_epochs=1,
     mixed_precision="no",  # `no` for float32, `fp16` for automatic mixed precision,
     output_dir="pretraining_output",
     seed=0,
     l_inf_noise=0,
     add_pertruebation=True,
-    num_inference_steps=2,
+    num_inference_steps=50,
     diffusion_class=DDIMPipeline,
     scheduler_class=DDIMScheduler,
     save_images_to_disk=False,
@@ -83,10 +83,10 @@ config = TrainingConfig(
     training_steps=1000,
     data_from_model=False,
     train_clean_model=False,
-    regularize_using_clean_model=True,
-    reg_lambda=3,
+    regularize_using_clean_model=False,
+    reg_lambda=0,
     hinge_loss_threshold=0.0,
-    data_length=3,
+    data_length=0,
     labels_from_data=True,
 )
 
@@ -114,7 +114,8 @@ def transform(examples):
 
 
 dataset.set_transform(transform)
-dataset = dataset.select(range(config.data_length))
+if config.data_length > 0:
+    dataset = dataset.select(range(config.data_length))
 train_dataloader = torch.utils.data.DataLoader(
     dataset, batch_size=config.train_batch_size, shuffle=True
 )
@@ -216,7 +217,7 @@ attack = ZooAttack(
     confidence=0.0,
     targeted=False,
     # learning_rate=1e-1,
-    max_iter=1,
+    max_iter=200,
     # binary_search_steps=10,
     # initial_const=1e-3,
     # abort_early=True,
@@ -250,7 +251,7 @@ def train_loop(
     accelerator = Accelerator(
         mixed_precision=config.mixed_precision,
         gradient_accumulation_steps=config.gradient_accumulation_steps,
-        # log_with="wandb",
+        log_with="wandb",
         project_dir=os.path.join(config.output_dir, "logs"),
     )
     accelerator.init_trackers(
