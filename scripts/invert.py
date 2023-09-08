@@ -15,7 +15,6 @@ from diffusers.models.attention_processor import LoRAAttnProcessor
 import numpy as np
 from data.factory import init_by_dataset
 from data.inversion_loader import save_inversion_data
-from ddpo_pytorch.inversion.ddim_inversion_pipeline import DDIMInversionPipeline
 from ddpo_pytorch.stat_tracking import PerPromptStatTracker
 from ddpo_pytorch.diffusers_patch.pipeline_with_logprob import pipeline_with_logprob
 from ddpo_pytorch.diffusers_patch.ddim_with_logprob import ddim_step_with_logprob
