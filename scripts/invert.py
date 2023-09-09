@@ -9,15 +9,12 @@ from ml_collections import config_flags
 from accelerate import Accelerator
 from accelerate.utils import set_seed, ProjectConfiguration
 from accelerate.logging import get_logger
-from diffusers import DDIMScheduler, UNet2DConditionModel
+from diffusers import DDIMScheduler, UNet2DModel, DDIMPipeline
 from diffusers.loaders import AttnProcsLayers
 from diffusers.models.attention_processor import LoRAAttnProcessor
 import numpy as np
 from data.factory import init_by_dataset
 from data.inversion_loader import save_inversion_data
-from ddpo_pytorch.stat_tracking import PerPromptStatTracker
-from ddpo_pytorch.diffusers_patch.pipeline_with_logprob import pipeline_with_logprob
-from ddpo_pytorch.diffusers_patch.ddim_with_logprob import ddim_step_with_logprob
 import torch
 import wandb
 from functools import partial
@@ -78,10 +75,8 @@ def main(_):
     # set seed (device_specific is very important to get different prompts on different devices)
     set_seed(config.seed, device_specific=True)
 
-    repo_id = "google/ddpm-cifar10-32"
-    pipeline = DDIMInversionPipeline.from_pretrained(
-      repo_id, revision="main"
-    )
+    repo_id = config.pretrained.model
+    pipeline = DDIMPipeline.from_pretrained(repo_id, use_safetensors=True)
     scheduler = DDIMScheduler.from_pretrained(repo_id)
     pipeline.scheduler = scheduler
     pipeline = pipeline.to("cuda")

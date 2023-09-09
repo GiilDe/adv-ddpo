@@ -90,7 +90,7 @@ class DDIMInversion:
         return ddim_latents
         
     
-    def __init__(self, model, scheduler, num_ddim_steps, progress_bar):
+    def __init__(self, model, scheduler, num_ddim_steps, progress_bar = None):
         self.schd = scheduler
         self.model = model
         self.progress_bar = progress_bar
