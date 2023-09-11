@@ -29,7 +29,11 @@ import torch.nn.functional as F
 import torchvision
 from models import DDIMPipelineGivenImage
 from ddpo_pytorch.classification.factory import init_by_dataset
-from utils import create_comparison_img, normalize_to_unit_interval, normalized_tensor_to_pil
+from utils import (
+    create_comparison_img,
+    normalize_to_unit_interval,
+    normalized_tensor_to_pil,
+)
 
 tqdm = partial(tqdm.tqdm, dynamic_ncols=True)
 
@@ -100,7 +104,7 @@ def main(_):
 
     # load scheduler and models.
     pipeline_ft = DDIMPipelineGivenImage.from_pretrained(
-        config.pretrained.pipeline_original, revision=config.pretrained.revision
+        config.pretrained.pipeline_ft, revision=config.pretrained.revision
     )
     pipeline_orig = DDIMPipelineGivenImage.from_pretrained(
         config.pretrained.pipeline_original, revision=config.pretrained.revision
@@ -127,8 +131,18 @@ def main(_):
     ] = 1  # without adding this line there's a bug! the timestep = 0 returns logprob = nan which crashes the training
     pipeline_ft.scheduler = DDIMScheduler.from_config(pipeline_ft.scheduler.config)
     pipeline_orig.scheduler = DDIMScheduler.from_config(pipeline_ft.scheduler.config)
-    inversion_pipe_ft = DDIMInversion(pipeline_ft.unet, pipeline_ft.scheduler, config.sample.num_steps, pipeline_ft.progress_bar)
-    inversion_pipe_org = DDIMInversion(pipeline_orig.unet, pipeline_orig.scheduler, config.sample.num_steps, pipeline_orig.progress_bar)
+    inversion_pipe_ft = DDIMInversion(
+        pipeline_ft.unet,
+        pipeline_ft.scheduler,
+        config.sample.num_steps,
+        pipeline_ft.progress_bar,
+    )
+    inversion_pipe_org = DDIMInversion(
+        pipeline_orig.unet,
+        pipeline_orig.scheduler,
+        config.sample.num_steps,
+        pipeline_orig.progress_bar,
+    )
     classifier = init_by_dataset(config.dataset)
 
     # pipeline_ft.scheduler.set_timesteps(1000)
@@ -320,11 +334,19 @@ def main(_):
         #################### SAMPLING ####################
         pipeline_ft.unet.eval()
         samples = []
-        
+
         if epoch % config.evaluation_freq == 0 and accelerator.is_main_process:
             logger.info(f"Epoch {epoch}:  running evaluation")
-            evaluate_results(config, accelerator, inversion_pipe_ft, inversion_pipe_org, classifier, epoch)
-        
+            evaluate_results(
+                config,
+                accelerator,
+                inversion_pipe_ft,
+                inversion_pipe_org,
+                classifier,
+                epoch,
+                global_step,
+            )
+
         for i in tqdm(
             range(config.sample.num_batches_per_epoch),
             desc=f"Epoch {epoch}: sampling",
@@ -451,7 +473,6 @@ def main(_):
                     ],
                 },
                 step=global_step,
-
             )
 
             accelerator.log(
@@ -643,7 +664,16 @@ def main(_):
         if epoch != 0 and epoch % config.save_freq == 0 and accelerator.is_main_process:
             accelerator.save_state()
 
-def evaluate_results(config, accelerator, inversion_pipe_ft, inversion_pipe_org, classifier, epoch):
+
+def evaluate_results(
+    config,
+    accelerator,
+    inversion_pipe_ft,
+    inversion_pipe_org,
+    classifier,
+    epoch,
+    global_step,
+):
     with torch.no_grad():
         inversion_pipe_ft.model.eval()
         inversion_pipe_org.model.eval()
@@ -658,8 +688,12 @@ def evaluate_results(config, accelerator, inversion_pipe_ft, inversion_pipe_org,
 
         for i in range(config.num_eval_batches):
             images, labels, latents = load_inversion_data(config.latents_dir, i)
-            adv_images = inversion_pipe_ft.ddim_loop(latents, is_forward=False, num_ddim_steps=config.sample.num_steps)
-            recon = inversion_pipe_org.ddim_loop(latents, is_forward=False, num_ddim_steps=config.sample.num_steps)
+            adv_images = inversion_pipe_ft.ddim_loop(
+                latents, is_forward=False, num_ddim_steps=config.sample.num_steps
+            )
+            recon = inversion_pipe_org.ddim_loop(
+                latents, is_forward=False, num_ddim_steps=config.sample.num_steps
+            )
 
             images = normalize_to_unit_interval(images)
             adv_images = normalize_to_unit_interval(adv_images)
@@ -667,93 +701,118 @@ def evaluate_results(config, accelerator, inversion_pipe_ft, inversion_pipe_org,
 
             diff = torch.flatten(images - adv_images, start_dim=1)
             batch_l2_diff = torch.linalg.norm(diff, dim=1, ord=2)
-            batch_linf_diff = torch.linalg.norm(diff, dim=1, ord=float('inf'))
+            batch_linf_diff = torch.linalg.norm(diff, dim=1, ord=float("inf"))
             l2_diff = np.concatenate((l2_diff, batch_l2_diff.cpu().numpy()))
             linf_diff = np.concatenate((linf_diff, batch_linf_diff.cpu().numpy()))
 
             diff_recon = torch.flatten(images - recon, start_dim=1)
             batch_l2_diff_recon = torch.linalg.norm(diff_recon, dim=1, ord=2)
-            batch_linf_diff_recon = torch.linalg.norm(diff_recon, dim=1, ord=float('inf'))
-            l2_diff_recon = np.concatenate((l2_diff_recon, batch_l2_diff_recon.cpu().numpy()))
-            linf_diff_recon = np.concatenate((linf_diff_recon, batch_linf_diff_recon.cpu().numpy()))
+            batch_linf_diff_recon = torch.linalg.norm(
+                diff_recon, dim=1, ord=float("inf")
+            )
+            l2_diff_recon = np.concatenate(
+                (l2_diff_recon, batch_l2_diff_recon.cpu().numpy())
+            )
+            linf_diff_recon = np.concatenate(
+                (linf_diff_recon, batch_linf_diff_recon.cpu().numpy())
+            )
 
-            proccessed_adv = torch.stack( 
-                [classifier.preprocess(normalized_tensor_to_pil(image)[0]) for image in adv_images]
+            proccessed_adv = torch.stack(
+                [
+                    classifier.preprocess(normalized_tensor_to_pil(image)[0])
+                    for image in adv_images
+                ]
             ).to(classifier.device)
             adv_pred = classifier.predict(proccessed_adv).to(accelerator.device)
             adv_acc_batch = (adv_pred.argmax(dim=1) == labels).float().cpu().numpy()
             adv_acc = np.concatenate((adv_acc, adv_acc_batch))
-            adv_label_candidate, adv_label_candidate_score = get_adv_label_scores(labels, adv_pred)
+            adv_label_candidate, adv_label_candidate_score = get_adv_label_scores(
+                labels, adv_pred
+            )
             adv_true_label_score = torch.gather(adv_pred, 1, labels.unsqueeze(1))
-            
-            proccessed_rec = torch.stack( 
-                            [classifier.preprocess(normalized_tensor_to_pil(image)[0]) for image in recon]
-                        ).to(classifier.device)
+
+            proccessed_rec = torch.stack(
+                [
+                    classifier.preprocess(normalized_tensor_to_pil(image)[0])
+                    for image in recon
+                ]
+            ).to(classifier.device)
             rec_pred = classifier.predict(proccessed_rec).to(accelerator.device)
             rec_acc_batch = (rec_pred.argmax(dim=1) == labels).float().cpu().numpy()
             recon_acc = np.concatenate((recon_acc, rec_acc_batch))
 
-
-
-        global_step = epoch * config.train.num_inner_epochs            
         # log rewards and images
         if config.log:
             accelerator.log(
-                            {
-                                "org_adv_l2": l2_diff.mean(),
-                                "org_adv_linf": linf_diff.mean(),
-                                "org_recon_l2": l2_diff_recon.mean(),
-                                "org_recon_linf": linf_diff_recon.mean(),
-                                # "benign_acc": img_acc.mean(),
-                                "adv_acc": adv_acc.mean(),
-                                "recon_acc": recon_acc.mean()
-                            },
-                            step=global_step,
-                        )
-            
+                {
+                    "org_adv_l2": l2_diff.mean(),
+                    "org_adv_linf": linf_diff.mean(),
+                    "org_recon_l2": l2_diff_recon.mean(),
+                    "org_recon_linf": linf_diff_recon.mean(),
+                    # "benign_acc": img_acc.mean(),
+                    "adv_acc": adv_acc.mean(),
+                    "recon_acc": recon_acc.mean(),
+                },
+                step=global_step,
+            )
+
             logger.info(f"Posting eval {epoch} to wandb")
             accelerator.log(
-                            {
-                                "Adverserial": [
-                                    wandb.Image(adv_images[j],
-                                                caption=f"l2 diff: {batch_l2_diff[j].item():.2f} \n \
+                {
+                    "Adverserial": [
+                        wandb.Image(
+                            adv_images[j],
+                            caption=f"l2 diff: {batch_l2_diff[j].item():.2f} \n \
                                                     l_inf diff: {batch_linf_diff[j].item():.2f}\n \
                                                     true label: {labels[j].item()} score: {adv_true_label_score[j].item():.2f}\n \
-                                                    adv label: {adv_label_candidate[j].item()} score: {adv_label_candidate_score[j].item():.2f}")
-                                    for j in range(0,32)
-                                ],
-                            },
-                            step=global_step,
+                                                    adv label: {adv_label_candidate[j].item()} score: {adv_label_candidate_score[j].item():.2f}",
                         )
+                        for j in range(0, 32)
+                    ],
+                },
+                step=global_step,
+            )
             if epoch == 0:
                 accelerator.log(
-                                {
-                                    "Original": [
-                                        wandb.Image(images[j],
-                                                    caption=f"l2 diff: {batch_l2_diff[j].item():.2f}\n \
-                                                        l_inf diff: {batch_linf_diff[j].item():.2f}\n")
-                                        for j in range(0,32)
-                                    ],
-                                },
-                                step=global_step,
+                    {
+                        "Original": [
+                            wandb.Image(
+                                images[j],
+                                caption=f"l2 diff: {batch_l2_diff[j].item():.2f}\n \
+                                                        l_inf diff: {batch_linf_diff[j].item():.2f}\n",
                             )
+                            for j in range(0, 32)
+                        ],
+                    },
+                    step=global_step,
+                )
                 accelerator.log(
-                                {
-                                    "Recon": [
-                                        wandb.Image(recon[j],
-                                                    caption=f"l2 diff: {batch_l2_diff_recon[j].item():.2f} \n l_inf diff: {batch_linf_diff_recon[j].item():.2f}")
-                                        for j in range(0,32)
-                                    ],
-                                },
-                                step=global_step,
+                    {
+                        "Recon": [
+                            wandb.Image(
+                                recon[j],
+                                caption=f"l2 diff: {batch_l2_diff_recon[j].item():.2f} \n l_inf diff: {batch_linf_diff_recon[j].item():.2f}",
                             )
-                
+                            for j in range(0, 32)
+                        ],
+                    },
+                    step=global_step,
+                )
 
 
 def get_adv_label_scores(labels, pred_scores):
     top_two_scores = torch.topk(pred_scores, k=2, sorted=True)
-    different_from_org_label_ind = (top_two_scores.indices - labels.unsqueeze(1)).abs().max(dim=1).indices
-    return torch.gather(top_two_scores.indices, 1, different_from_org_label_ind.unsqueeze(1)).reshape([-1]), torch.gather(top_two_scores.values, 1, different_from_org_label_ind.unsqueeze(1)).reshape([-1])
+    different_from_org_label_ind = (
+        (top_two_scores.indices - labels.unsqueeze(1)).abs().max(dim=1).indices
+    )
+    return torch.gather(
+        top_two_scores.indices, 1, different_from_org_label_ind.unsqueeze(1)
+    ).reshape([-1]), torch.gather(
+        top_two_scores.values, 1, different_from_org_label_ind.unsqueeze(1)
+    ).reshape(
+        [-1]
+    )
+
 
 if __name__ == "__main__":
     app.run(main)

@@ -6,7 +6,9 @@ def get_config():
 
     ###### General ######
     # run name for wandb logging and checkpoint saving -- if not provided, will be auto-generated based on the datetime.
-    config.run_name = "cifar test, diffusion loss"
+    config.run_name = (
+        "cifar test for results. Many inner epochs, clip 0.000001"
+    )
 
     # The name of the dataset the model was trained on, currently in ["MNIST", "CIFAR10"].
     config.dataset = "CIFAR10"
@@ -16,7 +18,7 @@ def get_config():
     config.logdir = "logs"
     # number of epochs to train for. each epoch is one round of sampling from the model followed by training on those
     # samples.
-    config.num_epochs = 300
+    config.num_epochs = 500
     # number of epochs between saving model checkpoints.
     config.save_freq = 10
     # number of checkpoints to keep before overwriting old ones.
@@ -39,22 +41,22 @@ def get_config():
     config.pretrained = pretrained = ml_collections.ConfigDict()
     # base model to load. either a path to a local directory, or a model name from the HuggingFace model hub.
     pretrained.pipeline_original = "google/ddpm-cifar10-32"
-    pretrained.pipeline_ft = ""
+    pretrained.pipeline_ft = "google/ddpm-cifar10-32"
     # revision of the model to load.
     pretrained.revision = "main"
 
     ###### Sampling ######
     config.sample = sample = ml_collections.ConfigDict()
     # number of sampler inference steps.
-    sample.num_steps = 150
+    sample.num_steps = 5
     # eta parameter for the DDIM sampler. this controls the amount of noise injected into the sampling process, with 0.0
     # being fully deterministic and 1.0 being equivalent to the DDPM sampler.
     sample.eta = 1.0
     # batch size (per GPU!) to use for sampling.
-    sample.batch_size = 64
+    sample.batch_size = 128
     # number of batches to sample per epoch. the total number of samples per epoch is `num_batches_per_epoch *
     # batch_size * num_gpus`.
-    sample.num_batches_per_epoch = 1
+    sample.num_batches_per_epoch = 2
 
     ###### Training ######
     config.train = train = ml_collections.ConfigDict()
@@ -79,11 +81,11 @@ def get_config():
     train.max_grad_norm = 1.0
     # number of inner epochs per outer epoch. each inner epoch is one iteration through the data collected during one
     # outer epoch's round of sampling.
-    train.num_inner_epochs = 2
+    train.num_inner_epochs = 1
     # clip advantages to the range [-adv_clip_max, adv_clip_max].
     train.adv_clip_max = 5
     # the PPO clip range.
-    train.clip_range = 0.0001
+    train.clip_range = 0.000001
     # the fraction of timesteps to train on. if set to less than 1.0, the model will be trained on a subset of the
     # timesteps for each sample. this will speed up training but reduce the accuracy of policy gradient estimates.
     train.timestep_fraction = 1.0
@@ -92,7 +94,7 @@ def get_config():
     # reward function to use. see `rewards.py` for available reward functions.
     config.reward_fn = "untargeted_l_inf_img_diff"
     config.images_diff_weight = 0.0
-    config.images_diff_threshold = 0.3
+    config.images_diff_threshold = 0.0
     config.historical_normalization = False
     config.reward_type = "linear-reward"
 
@@ -113,9 +115,9 @@ def get_config():
     config.stat_tracking.min_count = 16
 
     ### Evaluation ###
-    config.evaluation_freq = 3
+    config.evaluation_freq = 6
     config.num_eval_batches = 1
-    config.latents_dir = 'latents_cache'
+    config.latents_dir = "latents_cache"
     config.log = True
 
     return config
