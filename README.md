@@ -14,3 +14,5 @@ Run
 accelerate launch scripts/train.py --config "config/cifar.py"
 ```
 To run training on CIFAR. You can also run on MNIST by using `config/base.py` instead.
+
+The training uses wandb for logging. To see the logs, you need to click the link in the output of the training script.
