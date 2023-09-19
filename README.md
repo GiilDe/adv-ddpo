@@ -24,6 +24,6 @@ If you wish to experiment with pretraining, i.e learning to attack using diffusi
 ```bash
 python pretraining.py
 ``` 
-After saving a pretrained model you can train it using RL by specifying its path.
+After saving a pretrained model you can train it using RL by specifying its path in your config file.
 
 The training uses wandb for logging. To see the logs, you need to click the link in the output of the training script.
