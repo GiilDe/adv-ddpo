@@ -206,27 +206,27 @@ classifier_attack = PyTorchClassifier(
     nb_classes=10,
     channels_first=True,
 )
-# attack = FastGradientMethod(
-#     estimator=classifier_attack,
-#     eps=0.3,
-#     eps_step=0.1,
-#     batch_size=config.train_batch_size,
-# )
-attack = ZooAttack(
-    classifier=classifier_attack,
-    confidence=0.0,
-    targeted=False,
-    # learning_rate=1e-1,
-    max_iter=200,
-    # binary_search_steps=10,
-    # initial_const=1e-3,
-    # abort_early=True,
-    # use_resize=False,
-    # use_importance=False,
-    # nb_parallel=5,
-    # batch_size=1,
-    # variable_h=0.01,
+attack = FastGradientMethod(
+    estimator=classifier_attack,
+    eps=0.3,
+    eps_step=0.1,
+    batch_size=config.train_batch_size,
 )
+# attack = ZooAttack(
+#     classifier=classifier_attack,
+#     confidence=0.0,
+#     targeted=False,
+#     # learning_rate=1e-1,
+#     max_iter=200,
+#     # binary_search_steps=10,
+#     # initial_const=1e-3,
+#     # abort_early=True,
+#     # use_resize=False,
+#     # use_importance=False,
+#     # nb_parallel=5,
+#     # batch_size=1,
+#     # variable_h=0.01,
+# )
 
 
 original_images = evaluate(

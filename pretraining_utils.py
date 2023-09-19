@@ -111,7 +111,10 @@ def evaluate_diff(
 
         accelerator.log(
             {
-                predicted_text: [wandb.Image(image) for image in images_predicted],
+                predicted_text: [
+                    wandb.Image(image, caption=label)
+                    for image, label in zip(images_predicted, ft_labels.tolist())
+                ],
             },
             step=global_step,
         )
@@ -164,7 +167,8 @@ def evaluate_diff_algo(
         accelerator.log(
             {
                 "algo pertrubed images": [
-                    wandb.Image(image) for image in images_predicted
+                    wandb.Image(image, caption=label)
+                    for image, label in zip(images_predicted, ft_labels.tolist())
                 ],
             },
             step=global_step,
