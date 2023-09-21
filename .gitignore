@@ -327,3 +327,4 @@ latents_cache/*
 
 ###
 slurm/
+pretraining_output/
