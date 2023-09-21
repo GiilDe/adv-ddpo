@@ -7,7 +7,7 @@ def get_config():
     ###### General ######
     # run name for wandb logging and checkpoint saving -- if not provided, will be auto-generated based on the datetime.
     config.run_name = (
-        "cifar test for results. Many inner epochs, clip 0.000001"
+        "clip 0.0001, eta 0.2, num_batches_per_epoch 0, l2 loss 0.1"
     )
 
     # The name of the dataset the model was trained on, currently in ["MNIST", "CIFAR10"].
@@ -48,20 +48,20 @@ def get_config():
     ###### Sampling ######
     config.sample = sample = ml_collections.ConfigDict()
     # number of sampler inference steps.
-    sample.num_steps = 5
+    sample.num_steps = 150
     # eta parameter for the DDIM sampler. this controls the amount of noise injected into the sampling process, with 0.0
     # being fully deterministic and 1.0 being equivalent to the DDPM sampler.
-    sample.eta = 1.0
+    sample.eta = 0.2
     # batch size (per GPU!) to use for sampling.
     sample.batch_size = 128
     # number of batches to sample per epoch. the total number of samples per epoch is `num_batches_per_epoch *
     # batch_size * num_gpus`.
-    sample.num_batches_per_epoch = 2
+    sample.num_batches_per_epoch = 1
 
     ###### Training ######
     config.train = train = ml_collections.ConfigDict()
     # batch size (per GPU!) to use for training.
-    train.batch_size = 64
+    train.batch_size = 128
     # whether to use the 8bit Adam optimizer from bitsandbytes.
     train.use_8bit_adam = False
     # learning rate.
@@ -85,7 +85,7 @@ def get_config():
     # clip advantages to the range [-adv_clip_max, adv_clip_max].
     train.adv_clip_max = 5
     # the PPO clip range.
-    train.clip_range = 0.000001
+    train.clip_range = 0.0001
     # the fraction of timesteps to train on. if set to less than 1.0, the model will be trained on a subset of the
     # timesteps for each sample. this will speed up training but reduce the accuracy of policy gradient estimates.
     train.timestep_fraction = 1.0
@@ -96,10 +96,10 @@ def get_config():
     config.images_diff_weight = 0.0
     config.images_diff_threshold = 0.0
     config.historical_normalization = False
-    config.reward_type = "linear-reward"
+    config.reward_type = "log-reward"
 
     ###### Loss Function ######
-    config.images_diff_weight_loss = 0.0
+    config.images_diff_weight_loss = 0.1
     config.images_diff_threshold_loss = 0  # 2e-5
     config.normalize_threshold = False
 
